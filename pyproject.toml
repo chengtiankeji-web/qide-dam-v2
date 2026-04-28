@@ -1,0 +1,76 @@
+[project]
+name = "qide-dam"
+version = "2.0.0-sprint1"
+description = "Qide Digital Asset Management — AI-native multi-tenant DAM platform"
+requires-python = ">=3.11"
+
+dependencies = [
+    # Web framework
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "python-multipart>=0.0.18",
+
+    # DB
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.29.0",
+    "alembic>=1.14.0",
+    "psycopg2-binary>=2.9.10",  # for alembic sync
+    "pgvector>=0.3.6",
+
+    # Cache / queue
+    "redis>=5.2.0",
+    "celery>=5.4.0",
+
+    # Object storage (S3 protocol — works for R2 / MinIO / OSS)
+    "boto3>=1.35.0",
+    "aioboto3>=13.2.0",
+
+    # Auth
+    "python-jose[cryptography]>=3.3.0",
+    "passlib[bcrypt]>=1.7.4",
+
+    # Settings / validation
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.7.0",
+    "email-validator>=2.2.0",
+
+    # Logging
+    "structlog>=24.4.0",
+
+    # MCP (Model Context Protocol) — official Python SDK
+    "mcp>=1.1.0",
+
+    # Misc
+    "httpx>=0.28.0",
+    "python-magic>=0.4.27",
+    "Pillow>=11.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.25.0",
+    "pytest-cov>=6.0.0",
+    "httpx>=0.28.0",
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
+]
+
+ai = [
+    # AI auto-tagging — added in Sprint 3 but pinned here so deps are stable
+    "openai>=1.55.0",
+    "dashscope>=1.20.0",  # 通义千问
+    "sentence-transformers>=3.3.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "B", "UP", "PL"]
+ignore = ["E501", "PLR2004", "PLR0913"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

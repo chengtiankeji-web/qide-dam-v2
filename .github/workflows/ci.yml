@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: qidedam_test
+          POSTGRES_USER: qidedam
+          POSTGRES_PASSWORD: qidedam
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U qidedam"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+
+      minio:
+        image: minio/minio:latest
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        ports: ['9000:9000']
+        options: >-
+          --health-cmd "curl -f http://localhost:9000/minio/health/live || exit 1"
+          --health-interval 10s
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install
+        run: |
+          pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check app
+
+      - name: Migrate
+        env:
+          DATABASE_URL_SYNC: postgresql+psycopg2://qidedam:qidedam@localhost:5432/qidedam_test
+          DATABASE_URL: postgresql+asyncpg://qidedam:qidedam@localhost:5432/qidedam_test
+        run: alembic upgrade head
+
+      - name: Test
+        env:
+          APP_ENV: development
+          SECRET_KEY: test-secret
+          DATABASE_URL: postgresql+asyncpg://qidedam:qidedam@localhost:5432/qidedam_test
+          DATABASE_URL_SYNC: postgresql+psycopg2://qidedam:qidedam@localhost:5432/qidedam_test
+          REDIS_URL: redis://localhost:6379/0
+          CELERY_BROKER_URL: redis://localhost:6379/1
+          CELERY_RESULT_BACKEND: redis://localhost:6379/2
+          S3_ENDPOINT: http://localhost:9000
+          S3_ACCESS_KEY: minioadmin
+          S3_SECRET_KEY: minioadmin
+          S3_BUCKET: qidedam-ci
+        run: pytest -v

@@ -1,0 +1,79 @@
+# Production stack — Hetzner CPX21 / Ubuntu 22.04 / Docker.
+# - Drops MinIO (use Cloudflare R2 instead, set S3_ENDPOINT=https://<acct>.r2.cloudflarestorage.com)
+# - Adds Flower for Celery monitoring (port 5555 — fence with Cloudflare Access in real prod)
+# - All passwords / API keys live in .env.production (never committed)
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    env_file: .env.production
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    ports:
+      - "127.0.0.1:8000:8000"   # bind to localhost only — Cloudflare Tunnel exposes externally
+    command: >
+      sh -c "
+        alembic upgrade head &&
+        uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+      "
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    env_file: .env.production
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    command: celery -A app.workers.celery_app:celery_app worker --loglevel=info -Q default,media,ai,webhook --concurrency=4
+
+  beat:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    env_file: .env.production
+    depends_on:
+      redis: { condition: service_healthy }
+    command: celery -A app.workers.celery_app:celery_app beat --loglevel=info
+
+  flower:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    env_file: .env.production
+    depends_on:
+      redis: { condition: service_healthy }
+    command: celery -A app.workers.celery_app:celery_app flower --port=5555
+    ports:
+      - "127.0.0.1:5555:5555"
+
+volumes:
+  pg-data:
