@@ -27,7 +27,10 @@ dependencies = [
 
     # Auth
     "python-jose[cryptography]>=3.3.0",
-    "passlib[bcrypt]>=1.7.4",
+    "passlib>=1.7.4",
+    # bcrypt 4.1+ removed __about__.__version__ which passlib 1.7.4 still reads —
+    # pin to <4.1 until passlib ships the fix in 1.7.5.
+    "bcrypt>=4.0,<4.1",
 
     # Settings / validation
     "pydantic>=2.10.0",
