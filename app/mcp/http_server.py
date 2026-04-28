@@ -58,7 +58,7 @@ _server_module._get_runtime_api_key = _resolve_key  # type: ignore[assignment]
 
 
 def build_http_app() -> FastAPI:
-    app = FastAPI(title="QideDAM MCP HTTP", version="2.0.0-sprint2")
+    app = FastAPI(title="QideDAM MCP HTTP", version="2.0.0")
 
     @app.middleware("http")
     async def capture_api_key(request: Request, call_next):

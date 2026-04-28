@@ -31,7 +31,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title=settings.APP_NAME,
-    version="2.0.0-sprint1",
+    version="2.0.0",
     description="AI-native multi-tenant Digital Asset Management",
     docs_url="/docs" if not settings.is_production else None,
     redoc_url=None,
