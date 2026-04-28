@@ -63,6 +63,14 @@ ai = [
     "sentence-transformers>=3.3.0",
 ]
 
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+exclude = ["alembic*", "docker*", "scripts*", "tests*", "docs*"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
