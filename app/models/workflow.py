@@ -6,7 +6,6 @@ and a status. The workflow is `pending` until all required steps are approved.
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     JSON,
@@ -19,7 +18,6 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
-
 
 WORKFLOW_STATUSES = ("draft", "pending", "approved", "rejected", "cancelled")
 STEP_STATUSES = ("pending", "approved", "rejected", "skipped")
@@ -57,7 +55,7 @@ class Workflow(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(16), default="draft", nullable=False)
     metadata_: Mapped[dict] = mapped_column("metadata", JSON, default=dict, nullable=False)
 
-    steps: Mapped[list["WorkflowStep"]] = relationship(
+    steps: Mapped[list[WorkflowStep]] = relationship(
         back_populates="workflow",
         cascade="all, delete-orphan",
         order_by="WorkflowStep.order_no",
@@ -83,4 +81,4 @@ class WorkflowStep(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     decided_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    workflow: Mapped["Workflow"] = relationship(back_populates="steps")
+    workflow: Mapped[Workflow] = relationship(back_populates="steps")

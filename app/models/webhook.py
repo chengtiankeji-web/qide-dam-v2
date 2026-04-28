@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     JSON,
@@ -27,7 +26,6 @@ from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, SoftDeleteMixin, TimestampMixin, UUIDPrimaryKeyMixin
-
 
 # Common event types — keep in lock-step with `EVENT_TYPES` in webhook_service.py
 EVENT_TYPES = (
@@ -76,7 +74,7 @@ class WebhookSubscription(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, 
         DateTime(timezone=True), nullable=True
     )
 
-    deliveries: Mapped[list["WebhookDelivery"]] = relationship(
+    deliveries: Mapped[list[WebhookDelivery]] = relationship(
         back_populates="subscription",
         cascade="all, delete-orphan",
     )
@@ -118,7 +116,7 @@ class WebhookDelivery(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     response_size: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    subscription: Mapped["WebhookSubscription"] = relationship(back_populates="deliveries")
+    subscription: Mapped[WebhookSubscription] = relationship(back_populates="deliveries")
 
 
 class MultipartUpload(UUIDPrimaryKeyMixin, TimestampMixin, Base):

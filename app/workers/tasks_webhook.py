@@ -6,7 +6,7 @@ import hmac
 import json
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 
@@ -58,7 +58,7 @@ def deliver(self, delivery_id: str) -> dict:
         sig_header, _ = _sign(sub.secret, body)
 
         delivery.attempt_count += 1
-        delivery.last_attempt_at = datetime.now(timezone.utc)
+        delivery.last_attempt_at = datetime.now(UTC)
 
         try:
             with httpx.Client(timeout=15.0) as client:
@@ -80,7 +80,7 @@ def deliver(self, delivery_id: str) -> dict:
             if 200 <= resp.status_code < 300:
                 delivery.status = "succeeded"
                 sub.consecutive_failures = 0
-                sub.last_delivered_at = datetime.now(timezone.utc)
+                sub.last_delivered_at = datetime.now(UTC)
                 db.add_all([delivery, sub])
                 logger.info("webhook.delivery.ok", delivery_id=delivery_id,
                             status=resp.status_code)
@@ -93,7 +93,7 @@ def deliver(self, delivery_id: str) -> dict:
         sub.consecutive_failures += 1
         if sub.consecutive_failures >= MAX_FAILURES_BEFORE_SUSPEND:
             sub.is_active = False
-            sub.suspended_at = datetime.now(timezone.utc)
+            sub.suspended_at = datetime.now(UTC)
             logger.warning("webhook.subscription.suspended",
                            subscription_id=str(sub.id),
                            failures=sub.consecutive_failures)
@@ -107,7 +107,7 @@ def deliver(self, delivery_id: str) -> dict:
         next_in = BACKOFF_SECONDS[
             min(delivery.attempt_count - 1, len(BACKOFF_SECONDS) - 1)
         ]
-        delivery.next_retry_at = datetime.now(timezone.utc) + timedelta(seconds=next_in)
+        delivery.next_retry_at = datetime.now(UTC) + timedelta(seconds=next_in)
         delivery.status = "failed"
         db.add_all([delivery, sub])
 

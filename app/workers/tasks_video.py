@@ -5,7 +5,6 @@ thumbnail and logs the omission. Production Docker image bundles ffmpeg.
 """
 from __future__ import annotations
 
-import io
 import json
 import shutil
 import subprocess
@@ -74,6 +73,7 @@ def process_video(self, asset_id: str) -> dict:
                 if _grab_first_frame(src, frame):
                     # Generate the same 3-tier thumbnails using the frame
                     from PIL import Image
+
                     from app.workers.tasks_image import THUMB_SIZES, _make_thumbnail
                     im = Image.open(frame)
                     asset.width, asset.height = im.size

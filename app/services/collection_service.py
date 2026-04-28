@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Iterable
+from collections.abc import Iterable
 
 from sqlalchemy import and_, delete, func, select
 from sqlalchemy.exc import IntegrityError

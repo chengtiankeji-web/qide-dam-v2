@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import mimetypes
 import uuid
+from datetime import UTC
 from pathlib import PurePosixPath
 
 from sqlalchemy import and_, func, or_, select
@@ -200,10 +201,10 @@ async def get_asset(
 async def soft_delete_asset(
     db: AsyncSession, *, tenant_id: uuid.UUID, asset_id: uuid.UUID
 ) -> None:
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     asset = await _get_asset_for_tenant(db, tenant_id=tenant_id, asset_id=asset_id)
-    asset.deleted_at = datetime.now(timezone.utc)
+    asset.deleted_at = datetime.now(UTC)
     asset.status = "archived"
     await db.flush()
 

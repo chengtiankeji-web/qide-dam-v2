@@ -11,7 +11,6 @@ Future tenants (paying customer hosting mode) reuse the same row shape.
 """
 from __future__ import annotations
 
-import uuid
 from typing import TYPE_CHECKING
 
 from sqlalchemy import JSON, Boolean, String
@@ -48,12 +47,12 @@ class Tenant(UUIDPrimaryKeyMixin, SlugMixin, TimestampMixin, SoftDeleteMixin, Ba
     settings: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
 
     # --- relationships ---
-    projects: Mapped[list["Project"]] = relationship(
+    projects: Mapped[list[Project]] = relationship(
         back_populates="tenant",
         cascade="all, delete-orphan",
         lazy="selectin",
     )
-    users: Mapped[list["User"]] = relationship(
+    users: Mapped[list[User]] = relationship(
         back_populates="tenant",
         cascade="all, delete-orphan",
     )

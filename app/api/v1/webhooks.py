@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
@@ -82,8 +83,8 @@ async def delete_sub(
     if not sub:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
     sub.is_active = False
-    from datetime import datetime, timezone
-    sub.deleted_at = datetime.now(timezone.utc)
+    from datetime import datetime
+    sub.deleted_at = datetime.now(UTC)
     await db.flush()
 
 

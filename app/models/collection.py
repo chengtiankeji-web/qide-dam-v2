@@ -5,7 +5,6 @@ Many-to-many through `collection_assets`.
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     JSON,
@@ -60,7 +59,7 @@ class Collection(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
     is_smart: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     smart_query: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
 
-    asset_links: Mapped[list["CollectionAsset"]] = relationship(
+    asset_links: Mapped[list[CollectionAsset]] = relationship(
         back_populates="collection",
         cascade="all, delete-orphan",
     )
@@ -84,4 +83,4 @@ class CollectionAsset(TimestampMixin, Base):
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     note: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
-    collection: Mapped["Collection"] = relationship(back_populates="asset_links")
+    collection: Mapped[Collection] = relationship(back_populates="asset_links")

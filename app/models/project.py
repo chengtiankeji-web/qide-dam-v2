@@ -50,8 +50,8 @@ class Project(UUIDPrimaryKeyMixin, SlugMixin, TimestampMixin, SoftDeleteMixin, B
     settings: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
 
     # --- relationships ---
-    tenant: Mapped["Tenant"] = relationship(back_populates="projects")
-    assets: Mapped[list["Asset"]] = relationship(
+    tenant: Mapped[Tenant] = relationship(back_populates="projects")
+    assets: Mapped[list[Asset]] = relationship(
         back_populates="project",
         cascade="all, delete-orphan",
         passive_deletes=True,

@@ -8,7 +8,7 @@ Why a thin wrapper?
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import PurePosixPath
 
 import boto3
@@ -59,7 +59,7 @@ def build_storage_key(
     when: datetime | None = None,
 ) -> str:
     """Compose: t/<tenant>/p/<project>/<yyyy>/<mm>/<dd>/<asset_id>.<ext>"""
-    when = when or datetime.now(timezone.utc)
+    when = when or datetime.now(UTC)
     ext = extension.lower().lstrip(".")
     return (
         f"t/{tenant_storage_prefix}/p/{project_storage_prefix}/"

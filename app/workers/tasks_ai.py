@@ -6,7 +6,6 @@ AI fields without creating duplicates.
 from __future__ import annotations
 
 import datetime
-import io
 import uuid
 
 from sqlalchemy import text
@@ -49,7 +48,7 @@ def auto_tag(self, asset_id: str) -> dict:
             asset.ai_alt_text = (result.get("alt_text") or None)
             asset.ai_visual_description = (result.get("visual_description") or None)
             asset.ai_model = "qwen-vl-plus" if ai_service.has_provider() else "stub"
-            asset.ai_processed_at = datetime.datetime.now(datetime.timezone.utc)
+            asset.ai_processed_at = datetime.datetime.now(datetime.UTC)
             db.add(asset)
         logger.info("ai.tag.done", asset_id=asset_id, tag_count=len(tags))
         return {"asset_id": asset_id, "status": "ok", "tags": tags}

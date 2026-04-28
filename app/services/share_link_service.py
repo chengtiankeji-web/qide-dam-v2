@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import secrets
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -53,7 +53,7 @@ async def resolve_link(
     ).scalar_one_or_none()
     if not sl or not sl.is_active:
         raise ValueError("invalid or revoked link")
-    if sl.expires_at and sl.expires_at < datetime.now(timezone.utc):
+    if sl.expires_at and sl.expires_at < datetime.now(UTC):
         raise ValueError("link expired")
     if sl.max_downloads is not None and sl.download_count >= sl.max_downloads:
         raise ValueError("download quota exhausted")

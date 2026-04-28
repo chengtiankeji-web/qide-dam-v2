@@ -56,7 +56,7 @@ class ApiKey(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_used_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
-    user: Mapped["User | None"] = relationship(back_populates="api_keys")
+    user: Mapped[User | None] = relationship(back_populates="api_keys")
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<ApiKey prefix={self.prefix!r} tenant={self.tenant_id}>"

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from jose import JWTError, jwt
@@ -36,7 +36,7 @@ def create_access_token(
     extra_claims: dict[str, Any] | None = None,
     expires_minutes: int | None = None,
 ) -> str:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     expire = now + timedelta(minutes=expires_minutes or settings.JWT_EXPIRE_MINUTES)
     payload: dict[str, Any] = {
         "sub": subject,

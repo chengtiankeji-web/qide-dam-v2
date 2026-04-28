@@ -77,7 +77,24 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "B", "UP", "PL"]
-ignore = ["E501", "PLR2004", "PLR0913"]
+ignore = [
+    "E501",      # line length (handled by Black/formatter)
+    "PLR2004",   # magic numbers
+    "PLR0913",   # too many arguments
+    "PLR0912",   # too many branches
+    "PLR0915",   # too many statements
+    "B008",      # function call in default arg — required by FastAPI Depends/Query
+    "B904",      # raise from in except — too noisy for this codebase
+    "N818",      # exception name — minor style preference
+    "UP007",     # X | Y union — we use both styles intentionally
+    "PLC0415",   # import outside top-level — used to break circular imports / lazy load
+    "PLW0603",   # global statement — used for lazy singletons (engine / client)
+    "N806",      # non-lowercase var in function — common for class aliases (PdfReader)
+    "PLR0911",   # too many return statements
+    "PLW1510",   # subprocess.run without check — best-effort calls in workers
+    "PLW2901",   # redefined loop name
+    "UP017",     # datetime.UTC alias — Python 3.11+ feature, optional style
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

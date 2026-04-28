@@ -10,7 +10,6 @@ from typing import Any
 
 from PIL import ExifTags, Image
 
-from app.core.config import settings
 from app.core.logging import get_logger
 from app.models.asset import Asset
 from app.services import storage

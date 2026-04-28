@@ -62,8 +62,9 @@ def process_pipeline(self, asset_id: str) -> dict:
 @celery_app.task(name="pipeline.finalize", bind=True)
 def finalize(self, _ai_results, asset_id: str) -> dict:  # noqa: ARG002
     """Mark asset ready + emit asset.processed webhook."""
-    from app.services.webhook_service import enqueue_event  # noqa: F401 (sync version below)
     from sqlalchemy import select
+
+    from app.services.webhook_service import enqueue_event  # noqa: F401 (sync version below)
 
     with session_scope() as db:
         asset = db.get(Asset, uuid.UUID(asset_id))

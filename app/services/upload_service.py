@@ -9,7 +9,7 @@ Lifecycle:
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -139,7 +139,7 @@ async def abort(
         storage.abort_multipart(storage_key=mp.storage_key, upload_id=mp.upload_id)
     except Exception:  # noqa: BLE001 — abort is best-effort
         pass
-    mp.aborted_at = datetime.now(timezone.utc)
+    mp.aborted_at = datetime.now(UTC)
     asset = await asset_service.get_asset(db, tenant_id=tenant_id, asset_id=asset_id)
     asset.status = "failed"
     await db.flush()

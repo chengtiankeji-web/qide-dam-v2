@@ -9,7 +9,7 @@ Call sites:
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,7 +32,7 @@ async def bump(
     webhook_deliveries: int = 0,
 ) -> None:
     """ON CONFLICT DO UPDATE — single round-trip and crash-safe."""
-    day = day or datetime.now(timezone.utc).date()
+    day = day or datetime.now(UTC).date()
     sql = text(
         """
         INSERT INTO usage_meters (

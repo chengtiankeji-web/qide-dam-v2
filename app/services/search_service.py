@@ -7,7 +7,6 @@ We convert to a similarity score in [0, 1] via `1 - distance/2`.
 from __future__ import annotations
 
 import uuid
-from typing import Any
 
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession

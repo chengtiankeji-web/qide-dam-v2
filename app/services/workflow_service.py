@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -69,7 +69,7 @@ async def decide_step(
 
     step.status = decision  # 'approved' | 'rejected'
     step.comment = comment
-    step.decided_at = datetime.now(timezone.utc).isoformat()
+    step.decided_at = datetime.now(UTC).isoformat()
     await db.flush()
 
     # If rejected, reject the whole workflow; otherwise check completion

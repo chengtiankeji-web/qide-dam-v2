@@ -133,8 +133,8 @@ class Asset(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
     custom_fields: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
 
     # --- relationships ---
-    project: Mapped["Project"] = relationship(back_populates="assets")
-    versions: Mapped[list["AssetVersion"]] = relationship(
+    project: Mapped[Project] = relationship(back_populates="assets")
+    versions: Mapped[list[AssetVersion]] = relationship(
         back_populates="asset",
         cascade="all, delete-orphan",
         order_by="AssetVersion.version_no.desc()",
@@ -169,4 +169,4 @@ class AssetVersion(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     note: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
-    asset: Mapped["Asset"] = relationship(back_populates="versions")
+    asset: Mapped[Asset] = relationship(back_populates="versions")

@@ -45,8 +45,8 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
     project_access: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
 
     # --- relationships ---
-    tenant: Mapped["Tenant"] = relationship(back_populates="users")
-    api_keys: Mapped[list["ApiKey"]] = relationship(
+    tenant: Mapped[Tenant] = relationship(back_populates="users")
+    api_keys: Mapped[list[ApiKey]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
     )
