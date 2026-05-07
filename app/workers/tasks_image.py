@@ -92,5 +92,6 @@ def process_image(self, asset_id: str) -> dict:
         logger.info("image.process.done", asset_id=asset_id, thumbs=list(thumbs.keys()))
         return {"asset_id": asset_id, "status": "ok", "thumbs": list(thumbs.keys())}
     except Exception as exc:  # noqa: BLE001
-        logger.error("image.process.error", asset_id=asset_id, error=str(exc))
-        raise self.retry(exc=exc)
+        # 2026-04-29 fix: swallow — finalize must always run
+        logger.error("image.process.error_swallowed", asset_id=asset_id, error=str(exc))
+        return {"asset_id": asset_id, "status": "error", "error": str(exc)[:200]}

@@ -56,6 +56,14 @@ class ApiKey(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_used_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
+    # v3 P0-4: explicit revoke timestamp. is_active is the legacy flag we
+    # still respect, but revoked_at gives us a hard "when" for audit
+    # purposes and lets the auth middleware do a single timestamp compare
+    # instead of a boolean flip + scan.
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+
     user: Mapped[User | None] = relationship(back_populates="api_keys")
 
     def __repr__(self) -> str:  # pragma: no cover

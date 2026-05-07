@@ -48,14 +48,39 @@ def _get_runtime_api_key() -> str:
 async def _resolve_principal(db) -> ApiKey:
     raw = _get_runtime_api_key()
     digest = hash_api_key(raw)
+    # v3 P0-4: also reject keys with revoked_at set even if is_active=True
+    # (the server-side membership-removal flow sets both, legacy bots
+    # that only flip is_active still work).
     api_key = (
         await db.execute(
-            select(ApiKey).where(ApiKey.key_hash == digest, ApiKey.is_active.is_(True))
+            select(ApiKey).where(
+                ApiKey.key_hash == digest,
+                ApiKey.is_active.is_(True),
+                ApiKey.revoked_at.is_(None),
+            )
         )
     ).scalar_one_or_none()
     if not api_key:
         raise PermissionError("Invalid or revoked DAM API key")
     return api_key
+
+
+# v3 P0-3: AI-tool secret boundary. Every read tool below filters out
+# vault_*-kind / sensitivity=secret rows by default. Tools that need to
+# *touch* vault data (none in v3.0) would call /v1/vault/.../reveal via
+# HTTP with explicit purpose, NOT through MCP.
+def _assert_not_secret(asset, *, tool: str) -> None:
+    """Raise PermissionError if the asset is a vault item or
+    sensitivity=secret. Used on every single-asset MCP tool surface."""
+    if asset.kind in ("vault_login", "vault_identity", "vault_note"):
+        raise PermissionError(
+            f"MCP tool {tool!r} cannot access vault assets — "
+            "use /v1/vault/{id}/reveal with an explicit purpose"
+        )
+    if getattr(asset, "sensitivity_level", "internal") == "secret":
+        raise PermissionError(
+            f"MCP tool {tool!r} cannot access secret-classified assets"
+        )
 
 
 # ============================================================
@@ -69,12 +94,24 @@ async def list_assets(
     page: int = 1,
     page_size: int = 50,
 ) -> dict[str, Any]:
-    """List assets in the tenant. Filters: project_id, kind, status."""
+    """List assets in the tenant. Filters: project_id, kind, status.
+
+    v3 P0-3 — secret-classified and vault_* kind assets are excluded.
+    To work with Vault contents use the /v1/vault HTTP endpoints which
+    require an explicit `purpose` parameter for audit.
+    """
     async with AsyncSessionLocal() as db:
         api_key = await _resolve_principal(db)
         proj_uuid = uuid.UUID(project_id) if project_id else None
         if api_key.project_id and proj_uuid and api_key.project_id != proj_uuid:
             raise PermissionError("API key scoped to a different project")
+        # Reject explicit attempts to list vault kinds via MCP — the
+        # filter below would catch them silently, but raising is clearer.
+        if kind in ("vault_login", "vault_identity", "vault_note"):
+            raise PermissionError(
+                "vault_* asset kinds are not enumerable via MCP. "
+                "Use GET /v1/vault to list with payloads encrypted."
+            )
         items, total = await asset_service.list_assets(
             db,
             tenant_id=api_key.tenant_id,
@@ -83,6 +120,7 @@ async def list_assets(
             status=status,
             page=page,
             page_size=page_size,
+            exclude_secret=True,  # AI tools never see secrets
         )
         return {
             "total": total,
@@ -97,7 +135,7 @@ async def list_assets(
 # ============================================================
 @mcp.tool()
 async def search_assets(q: str, page_size: int = 20) -> dict[str, Any]:
-    """Keyword search. Sprint 3 adds vector / semantic search via search_similar."""
+    """Keyword search. v3 P0-3 — vault and sensitivity=secret excluded."""
     async with AsyncSessionLocal() as db:
         api_key = await _resolve_principal(db)
         items, total = await asset_service.list_assets(
@@ -107,6 +145,7 @@ async def search_assets(q: str, page_size: int = 20) -> dict[str, Any]:
             q=q,
             page=1,
             page_size=page_size,
+            exclude_secret=True,
         )
         return {"query": q, "total": total, "items": [_summary(a) for a in items]}
 
@@ -116,7 +155,10 @@ async def search_assets(q: str, page_size: int = 20) -> dict[str, Any]:
 # ============================================================
 @mcp.tool()
 async def get_asset(asset_id: str) -> dict[str, Any]:
-    """Fetch full metadata for a single asset by UUID."""
+    """Fetch full metadata for a single asset by UUID.
+
+    v3 P0-3 — refuses to serve vault_* / sensitivity=secret assets.
+    """
     async with AsyncSessionLocal() as db:
         api_key = await _resolve_principal(db)
         asset = await asset_service.get_asset(
@@ -124,6 +166,7 @@ async def get_asset(asset_id: str) -> dict[str, Any]:
         )
         if api_key.project_id and asset.project_id != api_key.project_id:
             raise PermissionError("API key cannot access this project")
+        _assert_not_secret(asset, tool="get_asset")
         return _full(asset)
 
 
@@ -316,12 +359,16 @@ async def update_asset_tags(
     add: list[str] | None = None,
     remove: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Add and/or remove manual tags on an asset."""
+    """Add and/or remove manual tags on an asset.
+
+    v3 P0-3 — vault / secret assets cannot be modified through MCP.
+    """
     async with AsyncSessionLocal() as db:
         api_key = await _resolve_principal(db)
         asset = await asset_service.get_asset(
             db, tenant_id=api_key.tenant_id, asset_id=uuid.UUID(asset_id)
         )
+        _assert_not_secret(asset, tool="update_asset_tags")
         tags = set(asset.manual_tags or [])
         if remove:
             tags -= set(remove)
@@ -338,7 +385,11 @@ async def update_asset_tags(
 # ============================================================
 @mcp.tool()
 async def get_download_url(asset_id: str, expires_in: int = 3600) -> dict[str, Any]:
-    """Get a short-lived signed URL the caller can fetch directly."""
+    """Get a short-lived signed URL the caller can fetch directly.
+
+    v3 P0-3 — vault and secret-classified assets cannot be downloaded
+    via MCP. Use /v1/vault/{id}/reveal for vault payloads.
+    """
     from app.services import storage
 
     async with AsyncSessionLocal() as db:
@@ -346,6 +397,7 @@ async def get_download_url(asset_id: str, expires_in: int = 3600) -> dict[str, A
         asset = await asset_service.get_asset(
             db, tenant_id=api_key.tenant_id, asset_id=uuid.UUID(asset_id)
         )
+        _assert_not_secret(asset, tool="get_download_url")
         url = storage.presign_get(storage_key=asset.storage_key, expires_in=expires_in)
         return {"url": url, "expires_in": expires_in}
 

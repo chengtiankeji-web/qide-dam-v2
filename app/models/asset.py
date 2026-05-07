@@ -43,9 +43,27 @@ if TYPE_CHECKING:
 # ----- enums (kept as plain str for simplicity; checked in alembic with CHECK) -----
 
 ACL_LEVELS = ("private", "project", "tenant", "public")
-ASSET_KINDS = ("image", "video", "audio", "document", "archive", "model3d", "other")
+ASSET_KINDS = (
+    "image",
+    "video",
+    "audio",
+    "document",
+    "archive",
+    "model3d",
+    "other",
+    # v3 P0-1: Vault types — payload bytes are encrypted in vault_items,
+    # not stored in the regular file storage path. The asset row exists
+    # mainly so the unified ACL / version / search infra can apply.
+    "vault_login",
+    "vault_identity",
+    "vault_note",
+)
 ASSET_STATUSES = ("uploading", "processing", "ready", "failed", "archived")
 ASSET_SOURCES = ("upload", "migration", "mcp", "webhook", "system")
+# v3 P0-3: sensitivity drives encryption (vault), AI-tool filtering
+# (secret excluded), and audit verbosity (confidential/secret reads always
+# audited). Default 'internal' for legacy rows on migration.
+ASSET_SENSITIVITIES = ("public", "internal", "confidential", "secret")
 
 
 class Asset(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
@@ -99,6 +117,21 @@ class Asset(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
 
     # --- ACL ---
     acl: Mapped[str] = mapped_column(String(16), default="project", nullable=False)
+
+    # --- v3 P0-3 sensitivity classification ---
+    # public      → indexed in search, exposed to AI tools without restriction
+    # internal    → indexed in search, exposed to AI tools (the default)
+    # confidential→ indexed in search, AI tools must declare a `purpose`
+    # secret      → not exposed to AI tools at all; vault_* kinds are always
+    #               'secret'; reveal flow only via /v1/vault/{id}/reveal
+    sensitivity_level: Mapped[str] = mapped_column(
+        String(16), default="internal", nullable=False
+    )
+    # Denormalised: True iff sensitivity_level >= confidential. Cheaper to
+    # filter on than recomputing the comparison everywhere.
+    requires_purpose: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
 
     # --- media metadata (filled in by Celery workers) ---
     width: Mapped[int | None] = mapped_column(Integer, nullable=True)

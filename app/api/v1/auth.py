@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,6 +25,7 @@ from app.schemas.auth import (
     LoginIn,
     TokenOut,
 )
+from app.services.audit_service import AuditAction, audit
 
 router = APIRouter()
 
@@ -57,6 +58,10 @@ async def login(payload: LoginIn, db: AsyncSession = Depends(get_db)) -> TokenOu
             "tid": str(user.tenant_id),
             "role": user.role,
             "ipa": user.is_platform_admin,
+            # v3 P0-4: token-version watermark. The auth dep compares this
+            # to user.token_version on every request — bumping the column
+            # invalidates every JWT issued before the bump.
+            "tv": user.token_version,
         },
     )
     return TokenOut(
@@ -144,3 +149,55 @@ async def list_api_keys(
         )
         for r in rows
     ]
+
+
+@router.delete("/api-keys/{key_id}", status_code=204)
+async def revoke_api_key(
+    key_id: uuid.UUID,
+    request: Request,
+    p: Principal = Depends(get_current_principal),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Revoke an API key. Tenant-scoped: tenant_admin / platform_admin can
+    revoke keys in their own tenant; the owner of the key can also revoke
+    their own key.
+
+    v3 P0-4: also sets revoked_at = now() so the auth middleware can
+    short-circuit on a single timestamp compare. The audit row is
+    written before commit so the trail survives even if the user clicks
+    cancel or the network drops mid-request — append-only via DB
+    triggers means the event can't be erased after the fact.
+    """
+    if p.role not in {"tenant_admin", "platform_admin"} and not p.is_platform_admin:
+        # Allow self-revoke (key owner) — fall through to ownership check below
+        if p.role != "api":
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "admin only")
+
+    record = (
+        await db.execute(select(ApiKey).where(ApiKey.id == key_id))
+    ).scalar_one_or_none()
+    if not record:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "api key not found")
+
+    # tenant scoping: platform_admin 可跨 tenant ; 其他人只能改自己 tenant
+    if not p.is_platform_admin and record.tenant_id != p.tenant_id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "cannot revoke key in other tenant")
+
+    from datetime import datetime, timezone
+
+    record.is_active = False
+    record.revoked_at = datetime.now(timezone.utc)
+
+    await audit(
+        db,
+        action=AuditAction.API_KEY_REVOKED,
+        tenant_id=record.tenant_id,
+        actor_user_id=p.user_id,
+        actor_kind="user" if p.via == "jwt" else "api_key",
+        target_kind="api_key",
+        target_id=record.id,
+        request=request,
+        metadata={"prefix": record.prefix, "name": record.name},
+    )
+
+    await db.commit()

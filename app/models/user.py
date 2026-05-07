@@ -8,7 +8,7 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import JSON, Boolean, ForeignKey, String, UniqueConstraint
+from sqlalchemy import JSON, Boolean, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -43,6 +43,19 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
 
     # JSON list of project IDs this user has access to ("*" means all in tenant)
     project_access: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+
+    # v3 P0-4: bump-to-revoke. JWTs carry `tv` claim that auth middleware
+    # compares to this column on every request. Bumping invalidates every
+    # JWT issued before the bump.
+    #
+    # Triggers for bumping:
+    #   - user removed from tenant
+    #   - user changes their own password
+    #   - admin force-revokes a session (compromised account)
+    #   - user toggles 2FA
+    token_version: Mapped[int] = mapped_column(
+        Integer, default=1, nullable=False
+    )
 
     # --- relationships ---
     tenant: Mapped[Tenant] = relationship(back_populates="users")

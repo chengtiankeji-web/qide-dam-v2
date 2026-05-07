@@ -119,6 +119,22 @@ async def confirm_upload(
         asset.public_url = storage.public_url_for(asset.storage_key)
     await db.flush()
 
+    # 2026-04-29 fix: bump tenant usage counters (storage_bytes_total +=
+    # actual_size, upload_bytes += actual_size, new_asset_count += 1)
+    # Without this the Dashboard's 30-day summary stays at 0 forever.
+    try:
+        from app.services import usage_service
+        await usage_service.bump(
+            db,
+            tenant_id=tenant_id,
+            storage_delta_bytes=actual_size,
+            upload_bytes=actual_size,
+            new_asset_count=1,
+        )
+    except Exception as e:  # noqa: BLE001
+        from app.core.logging import get_logger
+        get_logger(__name__).warning("asset.confirm.usage_bump_failed", error=str(e))
+
     # Sprint 2: enqueue the post-processing pipeline (image/video/document → ai)
     try:
         from app.workers.tasks_pipeline import process_pipeline
@@ -158,10 +174,14 @@ async def list_assets(
     tenant_id: uuid.UUID,
     project_id: uuid.UUID | None = None,
     kind: str | None = None,
-    status: str | None = "ready",
+    status: str | None = None,  # 2026-04-29 fix: 默认显示全部 status
     q: str | None = None,
     page: int = 1,
     page_size: int = 50,
+    # v3 P0-3: callers that should never see secret-level assets pass
+    # exclude_secret=True. MCP tools and the AI Gateway always do; the
+    # admin Assets page allows users to see (but not reveal) secret rows.
+    exclude_secret: bool = False,
 ) -> tuple[list[Asset], int]:
     stmt = select(Asset).where(
         Asset.tenant_id == tenant_id,
@@ -173,6 +193,13 @@ async def list_assets(
         stmt = stmt.where(Asset.kind == kind)
     if status:
         stmt = stmt.where(Asset.status == status)
+    if exclude_secret:
+        # Vault-kind assets are always sensitivity=secret; this filter
+        # also catches any future asset that gets manually marked secret.
+        stmt = stmt.where(Asset.sensitivity_level != "secret")
+        stmt = stmt.where(
+            ~Asset.kind.in_(("vault_login", "vault_identity", "vault_note"))
+        )
     if q:
         like = f"%{q}%"
         stmt = stmt.where(

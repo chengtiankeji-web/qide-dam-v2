@@ -20,6 +20,8 @@ dependencies = [
     # Cache / queue
     "redis>=5.2.0",
     "celery>=5.4.0",
+    "flower>=2.0.1",
+    "pycryptodome>=3.20.0",  # WeCom callback AES-CBC 解密
 
     # Object storage (S3 protocol — works for R2 / MinIO / OSS)
     "boto3>=1.35.0",

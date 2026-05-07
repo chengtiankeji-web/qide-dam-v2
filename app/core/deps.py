@@ -52,16 +52,32 @@ async def get_current_principal(
     # ---- API Key path ----
     if api_key_header:
         digest = hash_api_key(api_key_header)
-        stmt = select(ApiKey).where(ApiKey.key_hash == digest, ApiKey.is_active.is_(True))
+        # v3 P0-4: also reject keys that have been explicitly revoked.
+        # is_active is the legacy flag; revoked_at is the new explicit
+        # timestamp — we honour both so existing keys keep working while
+        # the migration backfill runs.
+        stmt = select(ApiKey).where(
+            ApiKey.key_hash == digest,
+            ApiKey.is_active.is_(True),
+            ApiKey.revoked_at.is_(None),
+        )
         api_key = (await db.execute(stmt)).scalar_one_or_none()
         if not api_key:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid API key")
         project_access: list = [str(api_key.project_id)] if api_key.project_id else ["*"]
+        # 从签发该 key 的 user 表读真实 is_platform_admin（admin:* scope 仍可显式授权）
+        owner_is_pa = False
+        if api_key.user_id:
+            owner = (
+                await db.execute(select(User).where(User.id == api_key.user_id))
+            ).scalar_one_or_none()
+            if owner and owner.is_platform_admin:
+                owner_is_pa = True
         return Principal(
             tenant_id=api_key.tenant_id,
             user_id=api_key.user_id,
             role="api",
-            is_platform_admin=False,
+            is_platform_admin=owner_is_pa,
             via="api_key",
             project_access=project_access,
             scopes=list(api_key.scopes or []),
@@ -85,6 +101,16 @@ async def get_current_principal(
     ).scalar_one_or_none()
     if not user or not user.is_active:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "user not active")
+
+    # v3 P0-4: enforce token version. JWTs without a `tv` claim are
+    # treated as version 1 (legacy compat) — once everyone re-signs in
+    # this becomes a hard requirement.
+    jwt_token_version = payload.get("tv", 1)
+    if jwt_token_version != user.token_version:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            "token revoked — please sign in again",
+        )
 
     return Principal(
         tenant_id=user.tenant_id,

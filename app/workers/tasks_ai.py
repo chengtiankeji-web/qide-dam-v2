@@ -30,8 +30,10 @@ def _load_thumb_or_original(asset: Asset) -> bytes:
     return storage.get_object(asset.storage_key)
 
 
-@celery_app.task(name="ai.tag", bind=True, max_retries=2, default_retry_delay=60)
+@celery_app.task(name="ai.tag", bind=True, max_retries=0)
 def auto_tag(self, asset_id: str) -> dict:
+    """Best-effort AI tagging. NEVER raises — failure here MUST NOT abort
+    the downstream finalize step (status=ready)."""
     logger.info("ai.tag.start", asset_id=asset_id)
     try:
         with session_scope() as db:
@@ -53,12 +55,14 @@ def auto_tag(self, asset_id: str) -> dict:
         logger.info("ai.tag.done", asset_id=asset_id, tag_count=len(tags))
         return {"asset_id": asset_id, "status": "ok", "tags": tags}
     except Exception as exc:  # noqa: BLE001
-        logger.error("ai.tag.error", asset_id=asset_id, error=str(exc))
-        raise self.retry(exc=exc)
+        # Swallow — log but DO NOT raise. Finalize must still run.
+        logger.error("ai.tag.error_swallowed", asset_id=asset_id, error=str(exc))
+        return {"asset_id": asset_id, "status": "error", "error": str(exc)[:200]}
 
 
-@celery_app.task(name="ai.embed", bind=True, max_retries=2, default_retry_delay=60)
+@celery_app.task(name="ai.embed", bind=True, max_retries=0)
 def embed_asset(self, asset_id: str) -> dict:
+    """Best-effort embedding. NEVER raises (same reason as ai.tag)."""
     logger.info("ai.embed.start", asset_id=asset_id)
     try:
         with session_scope() as db:
@@ -97,5 +101,6 @@ def embed_asset(self, asset_id: str) -> dict:
         logger.info("ai.embed.done", asset_id=asset_id)
         return {"asset_id": asset_id, "status": "ok", "dim": len(vec)}
     except Exception as exc:  # noqa: BLE001
-        logger.error("ai.embed.error", asset_id=asset_id, error=str(exc))
-        raise self.retry(exc=exc)
+        # Swallow — see ai.tag rationale.
+        logger.error("ai.embed.error_swallowed", asset_id=asset_id, error=str(exc))
+        return {"asset_id": asset_id, "status": "error", "error": str(exc)[:200]}

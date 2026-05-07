@@ -85,5 +85,6 @@ def process_document(self, asset_id: str) -> dict:
         logger.info("document.process.done", asset_id=asset_id)
         return {"asset_id": asset_id, "status": "ok"}
     except Exception as exc:  # noqa: BLE001
-        logger.error("document.process.error", asset_id=asset_id, error=str(exc))
-        raise self.retry(exc=exc)
+        # 2026-04-29 fix: swallow — finalize must always run
+        logger.error("document.process.error_swallowed", asset_id=asset_id, error=str(exc))
+        return {"asset_id": asset_id, "status": "error", "error": str(exc)[:200]}

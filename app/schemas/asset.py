@@ -57,6 +57,8 @@ class AssetOut(BaseModel):
     current_version: int
     is_starred: bool
     custom_fields: dict
+    # 2026-04-29 perf: 一次性 presigned URLs（list_assets 时填好 · 减少前端往返）
+    thumb_urls: dict | None = None  # {sm, md, lg} → presigned R2 URLs · None=未签或非 image
     created_at: datetime
     updated_at: datetime
 

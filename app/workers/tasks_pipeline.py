@@ -24,12 +24,26 @@ logger = get_logger("worker.pipeline")
 
 @celery_app.task(name="pipeline.process", bind=True)
 def process_pipeline(self, asset_id: str) -> dict:
-    """Decide which processor to invoke based on the asset's kind, and chain."""
+    """Decide which processor to invoke based on the asset's kind, and chain.
+
+    NOTE (2026-04-29 fix): all AI / processor tasks are scheduled with
+    immutable signatures (.si()) so that any one of them failing does NOT
+    abort the chain. The finalize step always runs and flips status=ready,
+    even if AI tagging / embedding errored out (e.g. no DashScope key,
+    network blip, etc.). This prevents 95% of assets being stuck forever
+    in `processing` state.
+    """
     with session_scope() as db:
         asset = db.get(Asset, uuid.UUID(asset_id))
         if not asset:
             return {"asset_id": asset_id, "status": "missing"}
         kind = asset.kind
+
+    finalize_sig = celery_app.signature("pipeline.finalize", args=[asset_id], immutable=True)
+    ai_group = group(
+        celery_app.signature("ai.tag",   args=[asset_id], immutable=True),
+        celery_app.signature("ai.embed", args=[asset_id], immutable=True),
+    )
 
     if kind == "image":
         processor = "image.process"
@@ -39,28 +53,19 @@ def process_pipeline(self, asset_id: str) -> dict:
         processor = "document.process"
     else:
         # No processing needed — go straight to AI + ready
-        chain(
-            group(
-                celery_app.signature("ai.tag", args=[asset_id]),
-                celery_app.signature("ai.embed", args=[asset_id]),
-            ),
-            celery_app.signature("pipeline.finalize", args=[asset_id]),
-        ).apply_async()
+        chain(ai_group, finalize_sig).apply_async()
         return {"asset_id": asset_id, "kind": kind, "stage": "ai_only"}
 
     chain(
-        celery_app.signature(processor, args=[asset_id]),
-        group(
-            celery_app.signature("ai.tag", args=[asset_id]),
-            celery_app.signature("ai.embed", args=[asset_id]),
-        ),
-        celery_app.signature("pipeline.finalize", args=[asset_id]),
+        celery_app.signature(processor, args=[asset_id], immutable=True),
+        ai_group,
+        finalize_sig,
     ).apply_async()
     return {"asset_id": asset_id, "kind": kind, "stage": "queued"}
 
 
 @celery_app.task(name="pipeline.finalize", bind=True)
-def finalize(self, _ai_results, asset_id: str) -> dict:  # noqa: ARG002
+def finalize(self, asset_id: str) -> dict:
     """Mark asset ready + emit asset.processed webhook."""
     from sqlalchemy import select
 

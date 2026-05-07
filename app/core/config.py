@@ -58,13 +58,37 @@ class Settings(BaseSettings):
     DASHSCOPE_API_KEY: str = ""
     OPENAI_API_KEY: str = ""
 
-    # --- Notifications ---
-    WECOM_BOT_URL: str = ""
+    # --- Notifications · WeCom (企业微信内部应用) ---
+    WECOM_BOT_URL: str = ""               # 旧 · 群机器人 webhook（保留兼容）
+    WECOM_CORPID: str = ""                 # 企业 ID · ww...
+    WECOM_CORPSECRET: str = ""             # 应用 Secret · 44 位
+    WECOM_AGENTID: str = ""                # 应用 ID · 7 位数字
+    WECOM_CALLBACK_TOKEN: str = ""         # 回调 token（Phase B 拿）
+    WECOM_CALLBACK_AESKEY: str = ""        # 43 位 EncodingAESKey（Phase B 拿）
 
     # --- MCP ---
     MCP_HTTP_HOST: str = "0.0.0.0"
     MCP_HTTP_PORT: int = 8001
     MCP_API_KEY_HEADER: str = "X-DAM-API-Key"
+
+    # --- Vault (v3 P0-1) ---
+    # Master KEK for AES-256-GCM envelope encryption of Vault payloads.
+    # Sprint 1 ships server-side encryption only — i.e. the server can
+    # decrypt for an authorised user. Sprint 2 (P1-1) will layer
+    # client-side XChaCha20-Poly1305 on top so the server cannot decrypt.
+    #
+    # Format: 64-char hex (= 32 raw bytes = 256 bits). Generate with
+    #   python -c "import secrets; print(secrets.token_hex(32))"
+    # Rotate by appending a new key with a higher version (later P0
+    # iteration); current production key picked by VAULT_KEK_ACTIVE_VERSION.
+    #
+    # In dev a deterministic placeholder is used; production .env MUST
+    # override or every Vault item becomes unrecoverable on restart.
+    VAULT_KEK_HEX: str = "0" * 64
+    VAULT_KEK_ACTIVE_VERSION: int = 1
+    # HMAC key for indexable hashes (Vault domain hash, search tokens, etc.).
+    # Same generation pattern as VAULT_KEK_HEX.
+    VAULT_HMAC_HEX: str = "1" * 64
 
     @computed_field  # type: ignore[prop-decorator]
     @property
