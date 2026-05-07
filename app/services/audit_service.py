@@ -80,6 +80,7 @@ class AuditAction:
     # Vault
     VAULT_CREATED = "vault.created"
     VAULT_UPDATED = "vault.updated"
+    VAULT_DELETED = "vault.deleted"
     VAULT_READ_REQUESTED = "vault.read_requested"
     VAULT_REVEALED = "vault.revealed"
     VAULT_COPIED = "vault.copied"

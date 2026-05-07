@@ -10,8 +10,9 @@ auth.login_success / auth.login_fail / auth.refresh_revoked / auth.totp_*
 member.invited / member.accepted / member.removed / member.role_changed
 asset.uploaded / asset.previewed / asset.downloaded / asset.updated
   / asset.permission_changed / asset.deleted
-vault.created / vault.updated / vault.read_requested / vault.revealed
-  / vault.copied / vault.export_attempted / vault.decrypt_failed
+vault.created / vault.updated / vault.deleted / vault.read_requested
+  / vault.revealed / vault.copied / vault.export_attempted
+  / vault.decrypt_failed
 ai.search_called / ai.asset_snippet_read / ai.answer_delivered
   / ai.tool_denied (when secret-mask refused a request)
 

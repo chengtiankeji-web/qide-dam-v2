@@ -50,19 +50,27 @@ router = APIRouter(prefix="/vault", tags=["vault"])
 
 async def _load_for_principal(
     db: AsyncSession, principal: Principal, item_id: uuid.UUID
-) -> VaultItem:
-    """Fetch a vault item enforcing tenant boundary. 404 on miss / wrong tenant."""
-    item = (
+) -> tuple[VaultItem, uuid.UUID | None]:
+    """Fetch a vault item + its project_id (via parent Asset).
+
+    Tenant boundary is enforced; 404 on miss / wrong tenant. project_id is
+    returned alongside so audit rows for read/reveal/update/delete can be
+    correctly scoped to the project — without it admin "show me last 7
+    days for project X" queries miss the bulk of vault activity.
+    """
+    row = (
         await db.execute(
-            select(VaultItem).where(
+            select(VaultItem, Asset.project_id)
+            .join(Asset, Asset.id == VaultItem.asset_id)
+            .where(
                 VaultItem.id == item_id,
                 VaultItem.tenant_id == principal.tenant_id,
             )
         )
-    ).scalar_one_or_none()
-    if not item:
+    ).one_or_none()
+    if not row:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "vault item not found")
-    return item
+    return row[0], row[1]
 
 
 def _summary(item: VaultItem) -> VaultItemSummary:
@@ -200,7 +208,7 @@ async def get_vault_item(
     db: AsyncSession = Depends(get_db),
     principal: Principal = Depends(get_current_principal),
 ) -> VaultItemSummary:
-    item = await _load_for_principal(db, principal, item_id)
+    item, _project_id = await _load_for_principal(db, principal, item_id)
     return _summary(item)
 
 
@@ -228,7 +236,7 @@ async def reveal_vault_item(
     this only if the key has the `vault:reveal` scope explicitly — see
     Sprint 1 doc note in CLAUDE.md. Default-deny.
     """
-    item = await _load_for_principal(db, principal, item_id)
+    item, project_id = await _load_for_principal(db, principal, item_id)
 
     # AI / api_key callers need explicit scope. Human JWT callers are
     # gated by tenant boundary only (further role gating is P1).
@@ -237,6 +245,7 @@ async def reveal_vault_item(
             db,
             action=AuditAction.AI_TOOL_DENIED,
             tenant_id=principal.tenant_id,
+            project_id=project_id,
             actor_user_id=principal.user_id,
             actor_kind="api_key",
             target_kind="vault_item",
@@ -259,6 +268,7 @@ async def reveal_vault_item(
         db,
         action=AuditAction.VAULT_READ_REQUESTED,
         tenant_id=principal.tenant_id,
+        project_id=project_id,
         actor_user_id=principal.user_id,
         actor_kind="user" if principal.via == "jwt" else "api_key",
         target_kind="vault_item",
@@ -279,6 +289,7 @@ async def reveal_vault_item(
             db,
             action=AuditAction.VAULT_DECRYPT_FAILED,
             tenant_id=principal.tenant_id,
+            project_id=project_id,
             actor_user_id=principal.user_id,
             target_kind="vault_item",
             target_id=item.id,
@@ -304,6 +315,7 @@ async def reveal_vault_item(
             db,
             action=AuditAction.VAULT_DECRYPT_FAILED,
             tenant_id=principal.tenant_id,
+            project_id=project_id,
             actor_user_id=principal.user_id,
             target_kind="vault_item",
             target_id=item.id,
@@ -321,6 +333,7 @@ async def reveal_vault_item(
         db,
         action=AuditAction.VAULT_REVEALED,
         tenant_id=principal.tenant_id,
+        project_id=project_id,
         actor_user_id=principal.user_id,
         actor_kind="user" if principal.via == "jwt" else "api_key",
         target_kind="vault_item",
@@ -354,7 +367,7 @@ async def update_vault_item(
     For payload changes we re-encrypt with a fresh DEK + nonce. The old
     DEK is discarded — there is no plaintext copy left anywhere.
     """
-    item = await _load_for_principal(db, principal, item_id)
+    item, project_id = await _load_for_principal(db, principal, item_id)
 
     if body.title is not None:
         item.title = body.title
@@ -397,6 +410,7 @@ async def update_vault_item(
         db,
         action=AuditAction.VAULT_UPDATED,
         tenant_id=principal.tenant_id,
+        project_id=project_id,
         actor_user_id=principal.user_id,
         actor_kind="user" if principal.via == "jwt" else "api_key",
         target_kind="vault_item",
@@ -428,7 +442,7 @@ async def delete_vault_item(
     db: AsyncSession = Depends(get_db),
     principal: Principal = Depends(get_current_principal),
 ) -> None:
-    item = await _load_for_principal(db, principal, item_id)
+    item, project_id = await _load_for_principal(db, principal, item_id)
 
     # Hard-delete the vault row + key material (cascade) — there is no
     # legitimate reason to keep the cipher around. The audit row stays.
@@ -436,8 +450,9 @@ async def delete_vault_item(
 
     await audit(
         db,
-        action=AuditAction.ASSET_DELETED,
+        action=AuditAction.VAULT_DELETED,
         tenant_id=principal.tenant_id,
+        project_id=project_id,
         actor_user_id=principal.user_id,
         actor_kind="user" if principal.via == "jwt" else "api_key",
         target_kind="vault_item",
