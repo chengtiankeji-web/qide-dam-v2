@@ -49,7 +49,7 @@ def auto_tag(self, asset_id: str) -> dict:
             asset.ai_summary = (result.get("summary") or None)
             asset.ai_alt_text = (result.get("alt_text") or None)
             asset.ai_visual_description = (result.get("visual_description") or None)
-            asset.ai_model = "qwen-vl-plus" if ai_service.has_provider() else "stub"
+            asset.ai_model = ai_service.VISION_MODEL if ai_service.has_provider() else "stub"
             asset.ai_processed_at = datetime.datetime.now(datetime.UTC)
             db.add(asset)
         logger.info("ai.tag.done", asset_id=asset_id, tag_count=len(tags))

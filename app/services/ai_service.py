@@ -31,6 +31,14 @@ DASHSCOPE_TEXT_EMBED_URL = (
 DASHSCOPE_VL_URL = (
     "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
 )
+DASHSCOPE_TEXT_GEN_URL = (
+    "https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation"
+)
+
+# Model identifiers · 由 Sam 2026-05-08 拍板
+VISION_MODEL = "qwen3-vl-plus"      # 图片打标 / alt-text / visual-description
+TEXT_GEN_MODEL = "qwen3.6-flash"    # 文档总结 / 文案重写 / 未来文本任务
+EMBED_MODEL = "text-embedding-v3"   # 向量 768 维 · 与 alembic vector(768) 列对齐
 
 
 def _stub_embedding(seed: str) -> list[float]:
@@ -62,7 +70,7 @@ def embed_text(text: str) -> list[float]:
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": "text-embedding-v3",
+                    "model": EMBED_MODEL,
                     "input": {"texts": [text[:2048]]},
                     "parameters": {"dimension": EMBED_DIM},
                 },
@@ -128,7 +136,7 @@ def describe_image(
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": "qwen-vl-plus",
+                    "model": VISION_MODEL,
                     "input": {
                         "messages": [
                             {
@@ -181,6 +189,81 @@ def describe_image(
                     ],
                 }],
                 "max_tokens": 300,
+            },
+            timeout=60.0,
+        )
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"]
+    except Exception as e:  # noqa: BLE001
+        return f"[error] {e}"
+
+
+# ----- text generation (qwen3.6-flash) -----
+
+def text_gen(prompt: str, *, system: str | None = None, max_tokens: int = 1024,
+             temperature: float = 0.5) -> str:
+    """Pure text generation via qwen3.6-flash.
+
+    用途：文档总结 / 文案重写 / 视觉描述精简等。当前 pipeline 没串入，
+    给未来 tasks_document / tasks_text_summary 备用。Sam 2026-05-08 拍板。
+
+    返回纯文本（解析过 choice.message.content）。失败时返回 [error] 前缀。
+    """
+    if not has_provider():
+        return f"[stub] text_gen({prompt[:40]}...)"
+
+    if settings.DASHSCOPE_API_KEY:
+        try:
+            messages = []
+            if system:
+                messages.append({"role": "system", "content": system})
+            messages.append({"role": "user", "content": prompt})
+
+            resp = httpx.post(
+                DASHSCOPE_TEXT_GEN_URL,
+                headers={
+                    "Authorization": f"Bearer {settings.DASHSCOPE_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": TEXT_GEN_MODEL,
+                    "input": {"messages": messages},
+                    "parameters": {
+                        "result_format": "message",
+                        "max_tokens": max_tokens,
+                        "temperature": temperature,
+                    },
+                },
+                timeout=60.0,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            choices = data.get("output", {}).get("choices", [])
+            if choices:
+                return choices[0].get("message", {}).get("content", "")
+            return ""
+        except Exception as e:  # noqa: BLE001
+            logger.warning("ai.text_gen.dashscope_failed", error=str(e))
+            return f"[error] {e}"
+
+    # OpenAI fallback (gpt-4o-mini)
+    try:
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+
+        resp = httpx.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "gpt-4o-mini",
+                "messages": messages,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
             },
             timeout=60.0,
         )
