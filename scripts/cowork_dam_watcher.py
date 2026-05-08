@@ -151,13 +151,13 @@ tags = ["kiln-ink"]
 [[path_routes]]
 prefix = "memory/projects/qide-dam"
 tenant_slug = "qide"
-project_slug = "qide-dam"
+project_slug = "dam"
 tags = ["qide-dam"]
 
 [[path_routes]]
 prefix = "code/qide-dam-v2"
 tenant_slug = "qide"
-project_slug = "qide-dam"
+project_slug = "dam"
 tags = ["qide-dam", "code"]
 
 [[path_routes]]
