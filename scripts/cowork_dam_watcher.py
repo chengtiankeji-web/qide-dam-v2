@@ -366,22 +366,25 @@ class DAMClient:
 
     def upload(self, fpath: Path, project_id: str, kind: str,
                folder: str, tags: list[str], sha: str) -> Optional[str]:
-        """两步上传：presign → PUT → confirm。返回 asset_id 或 None。"""
+        """两步上传：presign → PUT → confirm。返回 asset_id 或 None。
+
+        注：服务端 PresignedUploadIn schema 只接受
+        project_id / filename / mime_type / size_bytes / sha256 / acl / manual_tags。
+        kind 由扩展名服务端自动推断；folder_path 不在 presign 阶段设（如需归类
+        到具体 folder，确认后用 PATCH /v1/assets/{id} 设 folder_id）。
+        """
         size = fpath.stat().st_size
         mime = mimetypes.guess_type(fpath.name)[0] or "application/octet-stream"
 
         # ── Step 1: presign ──
         body = {
             "project_id": project_id,
-            "name": fpath.name,
-            "kind": kind,
+            "filename": fpath.name,
             "mime_type": mime,
-            "extension": fpath.suffix.lstrip("."),
             "size_bytes": size,
             "sha256": sha,
-            "folder_path": folder,
-            "tags": tags,
             "acl": "project",
+            "manual_tags": tags,
         }
         r = self.session.post(self._url("/v1/assets/uploads/presign"), json=body)
         if r.status_code not in (200, 201):

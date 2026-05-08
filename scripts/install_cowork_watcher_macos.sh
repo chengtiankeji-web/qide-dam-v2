@@ -47,25 +47,28 @@ echo "▶ Step 1: 安装 Python 依赖"
 }
 echo "  ✓ 依赖装好"
 
-# ─── Step 2: 跑一次脚本生成默认配置 ─────────────────────────────
+# ─── Step 2: 生成默认配置（不真启 watcher · 否则会 hang）───────
 echo ""
 echo "▶ Step 2: 生成默认配置（如果不存在）"
 mkdir -p "$LOG_DIR"
-"$PYTHON_BIN" "$SCRIPT_PATH" 2>&1 | head -10 || true
 
-if ! grep -q '^api_key = "."' "$LOG_DIR/config.toml" 2>/dev/null; then
-    if grep -q '^api_key = ""' "$LOG_DIR/config.toml" 2>/dev/null; then
-        echo ""
-        echo "════════════════════════════════════════════════════════════"
-        echo "  请先到 https://dam.qidelinktech.com Settings 创建 API key"
-        echo "  名字建议：cowork-watcher · $(scutil --get ComputerName 2>/dev/null || hostname)"
-        echo "  scope：默认就行（assets:write 自带）"
-        echo ""
-        echo "  然后编辑 $LOG_DIR/config.toml"
-        echo "  填入 api_key 后再次跑此脚本继续。"
-        echo "════════════════════════════════════════════════════════════"
-        exit 0
-    fi
+if [ ! -f "$LOG_DIR/config.toml" ]; then
+    # watcher.py 在没 config.toml 时跑一次会自动写默认 + 立即 exit 0
+    "$PYTHON_BIN" "$SCRIPT_PATH" 2>&1 | head -10 || true
+fi
+
+# 检查 api_key 是否填好（空串 = 未填）
+if grep -qE '^[[:space:]]*api_key[[:space:]]*=[[:space:]]*""' "$LOG_DIR/config.toml" 2>/dev/null; then
+    echo ""
+    echo "════════════════════════════════════════════════════════════"
+    echo "  请先到 https://dam.qidelinktech.com Settings 创建 API key"
+    echo "  名字建议：cowork-watcher · $(scutil --get ComputerName 2>/dev/null || hostname)"
+    echo "  scope：默认就行（assets:write 自带）"
+    echo ""
+    echo "  然后编辑 $LOG_DIR/config.toml"
+    echo "  填入 api_key 后再次跑此脚本继续。"
+    echo "════════════════════════════════════════════════════════════"
+    exit 0
 fi
 
 # ─── Step 3: 写 launchd plist ──────────────────────────────────
