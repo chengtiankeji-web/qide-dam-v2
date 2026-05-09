@@ -23,11 +23,48 @@ from app.schemas.upload import MultipartInitIn
 from app.services import asset_service, storage
 
 
+class DuplicateAssetError(Exception):
+    """v3 phase 1.1 (2026-05-09): 同 project + 同 sha256 + 未删 = 重复
+    抛给 endpoint 转 409 Conflict + existing_asset 元信息
+    用户可以选 1) 跳过上传 2) skip_dedup=true 强制再传一次副本
+    """
+
+    def __init__(self, existing: Asset):
+        self.existing = existing
+        super().__init__(f"duplicate asset: {existing.name} (id={existing.id})")
+
+
+async def _check_duplicate_sha256(
+    db: AsyncSession,
+    *,
+    project_id: uuid.UUID,
+    sha256: str | None,
+) -> Asset | None:
+    """phase 1.1 dedup: 同项目下 sha256 命中且未删 = 重复
+    sha256 为空（admin SPA 没传）跳过 · 仅 watcher / 显式传 sha256 时生效
+    """
+    if not sha256:
+        return None
+    found = (
+        await db.execute(
+            select(Asset).where(
+                Asset.project_id == project_id,
+                Asset.sha256 == sha256,
+                Asset.deleted_at.is_(None),
+                # 排除 status=uploading 自身（如果发生过 init 失败留下的孤儿）
+                # 不过通常 sha256 在 init 阶段就传了 · 自身就是新建的 · 不会冲突
+            ).limit(1)
+        )
+    ).scalar_one_or_none()
+    return found
+
+
 async def init_multipart(
     db: AsyncSession,
     *,
     tenant_id: uuid.UUID,
     payload: MultipartInitIn,
+    skip_dedup: bool = False,
 ) -> tuple[Asset, MultipartUpload]:
     project = (
         await db.execute(
@@ -39,6 +76,14 @@ async def init_multipart(
     if not project:
         raise ValueError("project not found")
     tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one()
+
+    # v3 phase 1.1 (2026-05-09): sha256 dedup check
+    if not skip_dedup:
+        dup = await _check_duplicate_sha256(
+            db, project_id=project.id, sha256=payload.sha256
+        )
+        if dup:
+            raise DuplicateAssetError(dup)
 
     asset_id = uuid.uuid4()
     extension = asset_service.safe_extension(payload.filename, payload.mime_type)

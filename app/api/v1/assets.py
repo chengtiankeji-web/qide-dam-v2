@@ -27,15 +27,36 @@ router = APIRouter()
 @router.post("/uploads/presign", response_model=PresignedUploadOut)
 async def presign_upload(
     payload: PresignedUploadIn,
+    skip_dedup: bool = False,
     p: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> PresignedUploadOut:
+    """v3 phase 1.1 (2026-05-09): 同 project + 同 sha256 = 重复 → 409 Conflict
+    body 含 sha256 时启用（watcher 默认带 · admin SPA 计算后带）
+    skip_dedup=true 显式跳过 · 用于"我知道是同样的内容但仍想要副本"场景"""
     if not p.can_access_project(payload.project_id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "no access to project")
     try:
         asset, url, headers = await asset_service.register_presigned_upload(
-            db, tenant_id=p.tenant_id, payload=payload
+            db, tenant_id=p.tenant_id, payload=payload, skip_dedup=skip_dedup
         )
+    except asset_service.DuplicateAssetError as e:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "code": "duplicate_asset",
+                "message": "同项目下已有相同 sha256 的资产 · "
+                           "调 ?skip_dedup=true 仍创建副本",
+                "existing_asset": {
+                    "id": str(e.existing.id),
+                    "name": e.existing.name,
+                    "size_bytes": e.existing.size_bytes,
+                    "kind": e.existing.kind,
+                    "created_at": e.existing.created_at.isoformat(),
+                    "status": e.existing.status,
+                },
+            },
+        ) from e
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
 
@@ -413,10 +434,24 @@ async def get_text_content(
             f"file too large for text preview ({asset.size_bytes} > {_TEXT_PREVIEW_MAX_BYTES}) · download instead",
         )
 
+    # 2026-05-09 fix: 资产 status 不是 ready 就别去拉 R2 ·
+    # 失败 multipart 留下 status=uploading 的僵尸行 · storage_key 指向不存在的对象 ·
+    # 直 boto3 内部重试 30+s · 触发 cloudflared 502（不带 CORS 头）→ 前端蒙逼。
+    # 直接 425 Too Early 让前端拿到带 CORS 的明确错误。
+    if asset.status != "ready":
+        raise HTTPException(
+            status.HTTP_425_TOO_EARLY,
+            f"asset status is '{asset.status}' · not ready for preview · "
+            f"upload may be incomplete · check Assets list for status",
+        )
+
     try:
         body = storage.get_object(asset.storage_key)
     except Exception as e:  # noqa: BLE001
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"R2 fetch failed: {e}") from e
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            f"R2 fetch failed: {e}",
+        ) from e
 
     # 解码 · 优先 utf-8 · 回退 utf-8 ignore（不致命 · 显示 ⟨replacement⟩ 字符）
     try:

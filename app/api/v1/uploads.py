@@ -32,15 +32,35 @@ router = APIRouter()
 @router.post("/multipart/init", response_model=MultipartInitOut, status_code=201)
 async def init_multipart(
     payload: MultipartInitIn,
+    skip_dedup: bool = False,
     p: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> MultipartInitOut:
+    """v3 phase 1.1 (2026-05-09): 同 project + 同 sha256 = 重复 → 409 Conflict
+    body 含 sha256 时启用 · 客户端可加 ?skip_dedup=true 强制创建副本"""
     if not p.can_access_project(payload.project_id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "no access to project")
     try:
         asset, mp = await upload_service.init_multipart(
-            db, tenant_id=p.tenant_id, payload=payload
+            db, tenant_id=p.tenant_id, payload=payload, skip_dedup=skip_dedup
         )
+    except upload_service.DuplicateAssetError as e:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "code": "duplicate_asset",
+                "message": "同项目下已有相同 sha256 的资产 · "
+                           "调 ?skip_dedup=true 仍创建副本",
+                "existing_asset": {
+                    "id": str(e.existing.id),
+                    "name": e.existing.name,
+                    "size_bytes": e.existing.size_bytes,
+                    "kind": e.existing.kind,
+                    "created_at": e.existing.created_at.isoformat(),
+                    "status": e.existing.status,
+                },
+            },
+        ) from e
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
     return MultipartInitOut(

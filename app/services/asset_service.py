@@ -49,19 +49,59 @@ def safe_extension(filename: str, mime_type: str) -> str:
 
 # ----- presigned upload registration -----
 
+class DuplicateAssetError(Exception):
+    """v3 phase 1.1 (2026-05-09): 同 project + 同 sha256 + 未删 = 重复
+    抛给 endpoint 转 409 Conflict + existing_asset 元信息
+    """
+
+    def __init__(self, existing: Asset):
+        self.existing = existing
+        super().__init__(f"duplicate asset: {existing.name} (id={existing.id})")
+
+
+async def _find_duplicate_by_sha256(
+    db: AsyncSession,
+    *,
+    project_id: uuid.UUID,
+    sha256: str | None,
+) -> Asset | None:
+    """phase 1.1 dedup helper · sha256 空时跳过（兼容老 client / watcher 必传）"""
+    if not sha256:
+        return None
+    return (
+        await db.execute(
+            select(Asset).where(
+                Asset.project_id == project_id,
+                Asset.sha256 == sha256,
+                Asset.deleted_at.is_(None),
+            ).limit(1)
+        )
+    ).scalar_one_or_none()
+
+
 async def register_presigned_upload(
     db: AsyncSession,
     *,
     tenant_id: uuid.UUID,
     payload: PresignedUploadIn,
+    skip_dedup: bool = False,
 ) -> tuple[Asset, str, dict]:
     """Create the Asset row in `uploading` state and return a presigned PUT URL.
 
     Caller (frontend / MCP client) PUTs the file directly to S3, then calls
     `confirm_upload` to flip status to ready and trigger Celery processing.
+
+    v3 phase 1.1: 检查同 project sha256 重复 · skip_dedup=true 跳过（用户要副本）
     """
     project = await _get_project(db, tenant_id=tenant_id, project_id=payload.project_id)
     tenant = await _get_tenant(db, tenant_id=tenant_id)
+
+    if not skip_dedup:
+        dup = await _find_duplicate_by_sha256(
+            db, project_id=project.id, sha256=payload.sha256
+        )
+        if dup:
+            raise DuplicateAssetError(dup)
 
     asset_id = uuid.uuid4()
     extension = safe_extension(payload.filename, payload.mime_type)
