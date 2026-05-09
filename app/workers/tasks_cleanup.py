@@ -28,10 +28,11 @@ def purge_old_trashed_task(self, older_than_days: int = DEFAULT_RETENTION_DAYS) 
 
 
 async def _purge_async(older_than_days: int) -> dict:
-    from app.db.session import async_session_factory
+    from app.db.session import get_session_factory
     from app.services import asset_service
 
-    async with async_session_factory() as db:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
         try:
             result = await asset_service.purge_old_trashed(
                 db, older_than_days=older_than_days

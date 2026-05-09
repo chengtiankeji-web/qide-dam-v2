@@ -140,7 +140,9 @@ class MultipartUpload(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         nullable=False,
     )
     storage_key: Mapped[str] = mapped_column(String(512), nullable=False)
-    upload_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    # 2026-05-09: R2 multipart upload_id 实测 ~330 字符 · 之前 String(256) 截断 INSERT 失败
+    # 改 Text 不限制 · 见 alembic 005
+    upload_id: Mapped[str] = mapped_column(Text, nullable=False)
     expected_size: Mapped[int] = mapped_column(BigInteger, nullable=False)
     parts_meta: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     is_completed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
