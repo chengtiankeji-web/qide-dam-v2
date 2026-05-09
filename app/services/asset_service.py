@@ -182,10 +182,13 @@ async def list_assets(
     # exclude_secret=True. MCP tools and the AI Gateway always do; the
     # admin Assets page allows users to see (but not reveal) secret rows.
     exclude_secret: bool = False,
+    # 2026-05-08 phase 1 trash: True 时只列出回收站（已 soft delete 的）
+    # · False（默认）只列出活资产 · 永远不同时显示两类
+    show_trashed: bool = False,
 ) -> tuple[list[Asset], int]:
     stmt = select(Asset).where(
         Asset.tenant_id == tenant_id,
-        Asset.deleted_at.is_(None),
+        Asset.deleted_at.is_not(None) if show_trashed else Asset.deleted_at.is_(None),
     )
     if project_id:
         stmt = stmt.where(Asset.project_id == project_id)
@@ -236,6 +239,135 @@ async def soft_delete_asset(
     await db.flush()
 
 
+# ─── phase 1 (2026-05-08): 回收站 / 永久删除 ─────────────────────────
+
+
+async def restore_asset(
+    db: AsyncSession, *, tenant_id: uuid.UUID, asset_id: uuid.UUID
+) -> Asset:
+    """从回收站恢复 · 清 deleted_at + 把 status 翻回 ready"""
+    asset = await _get_asset_for_tenant_include_trashed(
+        db, tenant_id=tenant_id, asset_id=asset_id
+    )
+    if asset.deleted_at is None:
+        raise ValueError("asset not in trash")
+    asset.deleted_at = None
+    asset.status = "ready"
+    await db.flush()
+    return asset
+
+
+async def hard_delete_asset(
+    db: AsyncSession, *, tenant_id: uuid.UUID, asset_id: uuid.UUID
+) -> dict:
+    """永久删除 · 从 R2 删 storage_key + 缩略图 + DB 行（cascade 到 versions / collection_assets 等）
+
+    注：只对已 soft-delete 过的资产生效（要求 deleted_at IS NOT NULL）
+    防止误调把活资产直接抹掉。
+    """
+    from app.services import storage
+
+    asset = await _get_asset_for_tenant_include_trashed(
+        db, tenant_id=tenant_id, asset_id=asset_id
+    )
+    if asset.deleted_at is None:
+        raise ValueError("can only hard-delete assets already in trash · soft-delete first")
+
+    # 收集所有要从 R2 删的对象 keys
+    keys_to_delete = []
+    if asset.storage_key:
+        keys_to_delete.append(asset.storage_key)
+    if asset.thumbnails and isinstance(asset.thumbnails, dict):
+        for v in asset.thumbnails.values():
+            if v:
+                keys_to_delete.append(v)
+
+    deleted_keys = []
+    failed_keys = []
+    for k in keys_to_delete:
+        try:
+            storage.delete_object(k)
+            deleted_keys.append(k)
+        except Exception as exc:  # noqa: BLE001
+            failed_keys.append({"key": k, "error": str(exc)})
+
+    # DB 行删除 · cascade 配置由模型 / FK 决定（见 alembic 001-004）
+    await db.delete(asset)
+    await db.flush()
+
+    return {
+        "asset_id": str(asset_id),
+        "r2_deleted": deleted_keys,
+        "r2_failed": failed_keys,
+    }
+
+
+async def empty_trash(
+    db: AsyncSession,
+    *,
+    tenant_id: uuid.UUID,
+    project_id: uuid.UUID | None = None,
+) -> dict:
+    """清空当前租户（或租户内某项目）的回收站。返回 hard-delete 摘要。"""
+    from sqlalchemy import select as _s
+
+    stmt = _s(Asset).where(
+        Asset.tenant_id == tenant_id,
+        Asset.deleted_at.is_not(None),
+    )
+    if project_id:
+        stmt = stmt.where(Asset.project_id == project_id)
+
+    rows = (await db.execute(stmt)).scalars().all()
+    count = 0
+    failed = []
+    for a in rows:
+        try:
+            await hard_delete_asset(db, tenant_id=tenant_id, asset_id=a.id)
+            count += 1
+        except Exception as exc:  # noqa: BLE001
+            failed.append({"asset_id": str(a.id), "error": str(exc)})
+    return {"deleted_count": count, "failed": failed}
+
+
+async def purge_old_trashed(
+    db: AsyncSession,
+    *,
+    older_than_days: int = 15,
+) -> dict:
+    """系统 cron 每天调一次（见 tasks_cleanup.py / celery beat）
+
+    硬删 deleted_at < now - N 天 的资产 · 跨所有 tenant · 默认 15 天。
+    """
+    from datetime import datetime, timedelta
+    from sqlalchemy import select as _s
+
+    cutoff = datetime.now(UTC) - timedelta(days=older_than_days)
+    rows = (
+        await db.execute(
+            _s(Asset).where(
+                Asset.deleted_at.is_not(None),
+                Asset.deleted_at < cutoff,
+            )
+        )
+    ).scalars().all()
+
+    count = 0
+    failed = []
+    for a in rows:
+        try:
+            await hard_delete_asset(db, tenant_id=a.tenant_id, asset_id=a.id)
+            count += 1
+        except Exception as exc:  # noqa: BLE001
+            failed.append({"asset_id": str(a.id), "error": str(exc)})
+    await db.commit()
+    return {
+        "purged_count": count,
+        "failed": failed,
+        "cutoff": cutoff.isoformat(),
+    }
+
+
 # ----- internals -----
 
 async def _get_project(
@@ -265,6 +397,27 @@ async def _get_tenant(db: AsyncSession, *, tenant_id: uuid.UUID) -> Tenant:
 async def _get_asset_for_tenant(
     db: AsyncSession, *, tenant_id: uuid.UUID, asset_id: uuid.UUID
 ) -> Asset:
+    """获取活资产 · 不含回收站。回收站操作走下面那个变体。"""
+    asset = (
+        await db.execute(
+            select(Asset).where(
+                and_(
+                    Asset.id == asset_id,
+                    Asset.tenant_id == tenant_id,
+                    Asset.deleted_at.is_(None),
+                )
+            )
+        )
+    ).scalar_one_or_none()
+    if not asset:
+        raise ValueError(f"asset {asset_id} not found in tenant")
+    return asset
+
+
+async def _get_asset_for_tenant_include_trashed(
+    db: AsyncSession, *, tenant_id: uuid.UUID, asset_id: uuid.UUID
+) -> Asset:
+    """v3 phase 1: restore / hard_delete 用 · 包括回收站资产"""
     asset = (
         await db.execute(
             select(Asset).where(

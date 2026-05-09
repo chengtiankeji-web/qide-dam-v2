@@ -7,6 +7,7 @@ sub-modules, causing `KeyError: 'task_name'` at runtime.
 from __future__ import annotations
 
 from celery import Celery
+from celery.schedules import crontab
 
 from app.core.config import settings
 
@@ -21,6 +22,7 @@ celery_app = Celery(
         "app.workers.tasks_ai",
         "app.workers.tasks_webhook",
         "app.workers.tasks_pipeline",
+        "app.workers.tasks_cleanup",
     ],
 )
 
@@ -41,6 +43,15 @@ celery_app.conf.update(
         "app.workers.tasks_document.*": {"queue": "media"},
         "app.workers.tasks_ai.*": {"queue": "ai"},
         "app.workers.tasks_webhook.*": {"queue": "webhook"},
+        "cleanup.*": {"queue": "default"},
+    },
+    # Phase 1 (2026-05-08): 回收站每天 04:00 CST 自动清 15 天前的 soft-deleted
+    beat_schedule={
+        "purge-old-trashed-daily": {
+            "task": "cleanup.purge_old_trashed",
+            "schedule": crontab(hour=4, minute=0),  # 每天 04:00 (timezone=Asia/Shanghai)
+            "kwargs": {"older_than_days": 15},
+        },
     },
 )
 

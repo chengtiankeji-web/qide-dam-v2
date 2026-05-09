@@ -97,6 +97,10 @@ async def list_assets(
             "true 仅在 caller 有权限时生效（无权时静默忽略 = 仍排除）。"
         ),
     ),
+    show_trashed: bool = Query(
+        False,
+        description="True = 只显示回收站（deleted_at IS NOT NULL）· False = 默认显示活资产 · 永远不混合",
+    ),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     p: Principal = Depends(get_current_principal),
@@ -132,6 +136,7 @@ async def list_assets(
         page=page,
         page_size=page_size,
         exclude_secret=not effective_include_secret,
+        show_trashed=show_trashed,
     )
     # 2026-04-29 perf: 列表里给 image kind 一次性签 thumb sm presigned URL
     # 客户端不再需要单独 round-trip 拿 download-url
@@ -236,18 +241,96 @@ async def update_asset(
 @router.delete("/{asset_id}", status_code=204)
 async def delete_asset(
     asset_id: uuid.UUID,
+    hard: bool = Query(
+        False,
+        description="True = 永久删除（含 R2 对象 · 不可恢复 · 仅对回收站资产生效）· "
+                    "False（默认）= soft delete · 进回收站 · 15 天后自动清",
+    ),
     p: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     try:
         effective_tid = await _resolve_asset_tenant_id(db, p=p, asset_id=asset_id)
-        asset = await asset_service.get_asset(db, tenant_id=effective_tid, asset_id=asset_id)
+        # hard delete 时要从 trash 找 · soft delete 时只看活资产
+        if hard:
+            asset = await asset_service._get_asset_for_tenant_include_trashed(
+                db, tenant_id=effective_tid, asset_id=asset_id
+            )
+        else:
+            asset = await asset_service.get_asset(db, tenant_id=effective_tid, asset_id=asset_id)
     except ValueError as e:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
     if not p.can_access_project(asset.project_id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "no access")
     _assert_secret_allowed(asset, p)
-    await asset_service.soft_delete_asset(db, tenant_id=effective_tid, asset_id=asset_id)
+
+    if hard:
+        try:
+            await asset_service.hard_delete_asset(
+                db, tenant_id=effective_tid, asset_id=asset_id
+            )
+        except ValueError as e:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+    else:
+        await asset_service.soft_delete_asset(
+            db, tenant_id=effective_tid, asset_id=asset_id
+        )
+
+
+@router.post("/{asset_id}/restore", response_model=AssetOut)
+async def restore_asset(
+    asset_id: uuid.UUID,
+    p: Principal = Depends(get_current_principal),
+    db: AsyncSession = Depends(get_db),
+) -> AssetOut:
+    """从回收站恢复 · status 翻回 ready · deleted_at 清空"""
+    try:
+        effective_tid = await _resolve_asset_tenant_id(db, p=p, asset_id=asset_id)
+        asset = await asset_service._get_asset_for_tenant_include_trashed(
+            db, tenant_id=effective_tid, asset_id=asset_id
+        )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
+    if not p.can_access_project(asset.project_id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "no access")
+
+    try:
+        restored = await asset_service.restore_asset(
+            db, tenant_id=effective_tid, asset_id=asset_id
+        )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+    return AssetOut.model_validate(restored)
+
+
+@router.delete("/_trash/empty", status_code=200)
+async def empty_trash(
+    project_id: uuid.UUID | None = Query(None, description="不传 = 清空整个 tenant 回收站"),
+    p: Principal = Depends(get_current_principal),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """清空回收站 · 永久删除（含 R2）。仅 tenant_admin / platform_admin · viewer / member 拒。"""
+    if p.role not in {"tenant_admin", "platform_admin"} and not p.is_platform_admin:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "empty trash requires admin role"
+        )
+    if project_id and not p.can_access_project(project_id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "no access to project")
+
+    # platform_admin 跨 tenant 时 · 默认还是用 principal.tenant_id
+    # 如果传了 project_id，反查它的 tenant_id（跨 tenant 清场景）
+    effective_tenant_id = p.tenant_id
+    if project_id and p.is_platform_admin:
+        from app.models.project import Project as _P
+        proj = (await db.execute(select(_P).where(_P.id == project_id))).scalar_one_or_none()
+        if proj:
+            effective_tenant_id = proj.tenant_id
+
+    result = await asset_service.empty_trash(
+        db, tenant_id=effective_tenant_id, project_id=project_id
+    )
+    await db.commit()
+    return result
 
 
 @router.get("/{asset_id}/download-url")
@@ -277,3 +360,73 @@ async def get_download_url(
 
     url = storage.presign_get(storage_key=storage_key, expires_in=expires_in)
     return {"url": url, "expires_in": expires_in, "variant": variant or "original"}
+
+
+# ─── phase 1 (2026-05-08): text-content 预览端点 ───────────────────
+# 给 admin SPA 渲染 md / txt / code · 服务端从 R2 拉文本返回
+# 避开浏览器 CORS（直接 PUT 到 presigned R2 URL 不带 Allow-Origin）
+# 大于 256KB 的文件返回 413 · 引导用户下载
+
+_TEXT_PREVIEW_EXTENSIONS = {
+    "md", "markdown", "txt", "rst", "log", "csv", "tsv",
+    "json", "jsonc", "yaml", "yml", "toml", "ini", "env", "conf",
+    "py", "js", "jsx", "ts", "tsx", "mjs", "cjs", "vue", "svelte",
+    "html", "htm", "xml", "css", "scss", "sass", "less", "styl",
+    "sh", "bash", "zsh", "fish", "ps1", "bat", "cmd",
+    "go", "rs", "java", "kt", "swift", "rb", "php", "pl", "lua",
+    "sql", "graphql", "gql", "proto",
+    "dockerfile", "makefile", "gitignore", "gitattributes",
+    "tf", "hcl", "nginx",
+}
+_TEXT_PREVIEW_MAX_BYTES = 256 * 1024  # 256 KB
+
+
+@router.get("/{asset_id}/text-content")
+async def get_text_content(
+    asset_id: uuid.UUID,
+    p: Principal = Depends(get_current_principal),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """读取 md / txt / 代码文件的纯文本内容。
+
+    服务端代理拉取 R2 · 避开浏览器 CORS · 超 256KB 拒。
+    返回 {"content": "<utf-8 text>", "size_bytes": int, "extension": str}
+    """
+    try:
+        effective_tid = await _resolve_asset_tenant_id(db, p=p, asset_id=asset_id)
+        asset = await asset_service.get_asset(db, tenant_id=effective_tid, asset_id=asset_id)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
+    if not p.can_access_project(asset.project_id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "no access")
+    _assert_secret_allowed(asset, p)
+
+    ext = (asset.extension or "").lower().lstrip(".")
+    if ext not in _TEXT_PREVIEW_EXTENSIONS:
+        raise HTTPException(
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            f"text preview not supported for extension '{ext}' · use download-url instead",
+        )
+    if asset.size_bytes and asset.size_bytes > _TEXT_PREVIEW_MAX_BYTES:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            f"file too large for text preview ({asset.size_bytes} > {_TEXT_PREVIEW_MAX_BYTES}) · download instead",
+        )
+
+    try:
+        body = storage.get_object(asset.storage_key)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"R2 fetch failed: {e}") from e
+
+    # 解码 · 优先 utf-8 · 回退 utf-8 ignore（不致命 · 显示 ⟨replacement⟩ 字符）
+    try:
+        text = body.decode("utf-8")
+    except UnicodeDecodeError:
+        text = body.decode("utf-8", errors="replace")
+
+    return {
+        "content": text,
+        "size_bytes": len(body),
+        "extension": ext,
+        "asset_id": str(asset_id),
+    }

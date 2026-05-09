@@ -26,6 +26,9 @@ class AssetUpdate(BaseModel):
     manual_tags: list[str] | None = None
     custom_fields: dict | None = None
     is_starred: bool | None = None
+    # 2026-05-08 phase 1: rename + move 支持。folder_id=None 等于"放回根"。
+    # 跨 tenant / 跨 project 移动暂不支持（phase 2 单独走 move endpoint）。
+    folder_id: uuid.UUID | None = None
 
 
 class AssetOut(BaseModel):
