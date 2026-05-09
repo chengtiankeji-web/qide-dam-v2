@@ -71,6 +71,17 @@ if grep -qE '^[[:space:]]*api_key[[:space:]]*=[[:space:]]*""' "$LOG_DIR/config.t
     exit 0
 fi
 
+# ─── Step 2.5: 自愈已装用户的 stale slug ─────────────────────────
+# 2026-05-08: default config 早期写错 project_slug = "qide-dam"，
+# 实际 qide tenant 真 slug 是 "dam"。已装用户的 config.toml 被 generate 时
+# 锁住了旧值，需要 sed 自愈。新装户已经直接拿到 "dam" 不会触发。
+if grep -q '^project_slug = "qide-dam"' "$LOG_DIR/config.toml" 2>/dev/null; then
+    echo "▶ Step 2.5: 检测到 stale 'qide-dam' slug · sed 自愈为 'dam'"
+    # macOS sed 需要 -i ''
+    sed -i '' 's/^project_slug = "qide-dam"/project_slug = "dam"/g' "$LOG_DIR/config.toml"
+    echo "  ✓ config.toml 已更新（之前 watcher 跑会 ERROR project not found · 现在好了）"
+fi
+
 # ─── Step 3: 写 launchd plist ──────────────────────────────────
 echo ""
 echo "▶ Step 3: 写 launchd plist → $PLIST_PATH"

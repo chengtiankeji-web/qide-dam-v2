@@ -96,8 +96,8 @@ if ! gunzip -t "$DUMP_FILE" 2>/dev/null; then
     exit 1
 fi
 
-if ! gunzip -c "$DUMP_FILE" | tail -1 | grep -q "PostgreSQL database dump complete"; then
-    log "WARN: dump may be incomplete (no end marker)"
+if ! gunzip -c "$DUMP_FILE" | tail -5 | grep -q "PostgreSQL database dump complete"; then
+    log "WARN: dump may be incomplete (no end marker in last 5 lines)"
 fi
 
 # ─── 上传 R2 ─────────────────────────────────────────────────────

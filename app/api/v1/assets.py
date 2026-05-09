@@ -64,6 +64,21 @@ async def confirm_upload(
     return AssetOut.model_validate(asset)
 
 
+def _can_see_secret(p: Principal) -> bool:
+    """v3 P0-3 收尾补丁（2026-05-08）
+
+    谁可以看到 sensitivity=secret 的资产元数据：
+      - 人类（JWT）默认可以 —— admin SPA 展示 vault list 给用户看
+        title / labels（但 reveal payload 仍需 vault:reveal scope + purpose）
+      - API key / AI 默认不可以 —— 必须显式带 vault:reveal scope
+
+    Vault payload 解密永远只能走 /v1/vault/{id}/reveal，与本函数无关。
+    """
+    if p.via == "jwt":
+        return True
+    return "vault:reveal" in (p.scopes or [])
+
+
 @router.get("", response_model=PageOut[AssetOut])
 async def list_assets(
     project_id: uuid.UUID | None = Query(None),
@@ -71,6 +86,17 @@ async def list_assets(
     status_: str | None = Query(None, alias="status",
         description="ready / processing / uploading / failed · 默认 None=显示全部"),
     q: str | None = Query(None, description="full-text search across name/description/tags"),
+    include_secret: bool | None = Query(
+        None,
+        description=(
+            "v3 P0-3: 是否包含 sensitivity=secret 资产（vault_login / vault_identity / vault_note）。"
+            "默认 None = 按 principal 推断："
+            "JWT 用户默认 True（admin SPA 需要展示），"
+            "api_key 默认 False（除非带 vault:reveal scope）。"
+            "调用方显式传 false/true 时，false 永远生效（opt-out 永远准），"
+            "true 仅在 caller 有权限时生效（无权时静默忽略 = 仍排除）。"
+        ),
+    ),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     p: Principal = Depends(get_current_principal),
@@ -88,6 +114,14 @@ async def list_assets(
         if proj:
             effective_tenant_id = proj.tenant_id
 
+    # v3 P0-3 secret boundary
+    if include_secret is False:
+        effective_include_secret = False  # opt-out 永远准
+    elif include_secret is True:
+        effective_include_secret = _can_see_secret(p)  # 无权时静默降级
+    else:
+        effective_include_secret = _can_see_secret(p)  # 默认按 principal 推断
+
     items, total = await asset_service.list_assets(
         db,
         tenant_id=effective_tenant_id,
@@ -97,6 +131,7 @@ async def list_assets(
         q=q,
         page=page,
         page_size=page_size,
+        exclude_secret=not effective_include_secret,
     )
     # 2026-04-29 perf: 列表里给 image kind 一次性签 thumb sm presigned URL
     # 客户端不再需要单独 round-trip 拿 download-url
@@ -148,7 +183,29 @@ async def get_asset(
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
     if not p.can_access_project(asset.project_id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "no access")
+
+    # v3 P0-3 收尾补丁（2026-05-08）: secret 资产元数据需要权限
+    # 之前 bug：api_key 拿到 vault_* 的完整 metadata（含 storage_key）
+    # 现在：sensitivity=secret 必须 _can_see_secret · 否则 403
+    # 注意：这只挡 metadata 元数据 · 真 payload 解密走 /v1/vault/{id}/reveal（更严）
+    if asset.sensitivity_level == "secret" and not _can_see_secret(p):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "this asset is sensitivity=secret · need vault:reveal scope (api_key) "
+            "or human JWT login · payload still requires reveal endpoint with purpose"
+        )
     return AssetOut.model_validate(asset)
+
+
+def _assert_secret_allowed(asset, p: Principal) -> None:
+    """v3 P0-3 收尾补丁: 任何对 sensitivity=secret 资产的非 list 操作（get/patch/
+    delete/download-url）都要走这个守卫。Vault 的 reveal 端点是更严的实例。"""
+    if asset.sensitivity_level == "secret" and not _can_see_secret(p):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "this asset is sensitivity=secret · need vault:reveal scope (api_key) "
+            "or human JWT login"
+        )
 
 
 @router.patch("/{asset_id}", response_model=AssetOut)
@@ -165,6 +222,7 @@ async def update_asset(
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
     if not p.can_access_project(asset.project_id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "no access")
+    _assert_secret_allowed(asset, p)
 
     data = payload.model_dump(exclude_unset=True)
     for field, value in data.items():
@@ -188,6 +246,7 @@ async def delete_asset(
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
     if not p.can_access_project(asset.project_id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "no access")
+    _assert_secret_allowed(asset, p)
     await asset_service.soft_delete_asset(db, tenant_id=effective_tid, asset_id=asset_id)
 
 
@@ -206,6 +265,7 @@ async def get_download_url(
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
     if not p.can_access_project(asset.project_id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "no access")
+    _assert_secret_allowed(asset, p)
 
     # 2026-04-29 fix: variant=sm/md/lg 返回 thumbnail 缩略图 URL（如果存在）
     storage_key = asset.storage_key
