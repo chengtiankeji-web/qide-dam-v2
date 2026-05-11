@@ -73,6 +73,7 @@ class AuditAction:
     ASSET_PREVIEWED = "asset.previewed"
     ASSET_DOWNLOADED = "asset.downloaded"
     ASSET_UPDATED = "asset.updated"
+    ASSET_MOVED = "asset.moved"  # 2026-05-10 phase 1.2: folder_id 切换 / 批量移动专用
     ASSET_DELETED = "asset.deleted"
     ASSET_PERMISSION_CHANGED = "asset.permission_changed"
     ASSET_SHARED = "asset.shared"

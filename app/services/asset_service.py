@@ -225,6 +225,11 @@ async def list_assets(
     # 2026-05-08 phase 1 trash: True 时只列出回收站（已 soft delete 的）
     # · False（默认）只列出活资产 · 永远不同时显示两类
     show_trashed: bool = False,
+    # 2026-05-10 phase 1.2 folder filter:
+    #   None      — 不按 folder 过滤（显示项目下所有 folder 的 + 根目录的）
+    #   "__root__" — 只显示根目录（folder_id IS NULL 的）
+    #   uuid       — 只显示该 folder 下的
+    folder_filter: str | uuid.UUID | None = None,
 ) -> tuple[list[Asset], int]:
     stmt = select(Asset).where(
         Asset.tenant_id == tenant_id,
@@ -232,6 +237,11 @@ async def list_assets(
     )
     if project_id:
         stmt = stmt.where(Asset.project_id == project_id)
+    if folder_filter is not None:
+        if isinstance(folder_filter, str) and folder_filter == "__root__":
+            stmt = stmt.where(Asset.folder_id.is_(None))
+        else:
+            stmt = stmt.where(Asset.folder_id == folder_filter)
     if kind:
         stmt = stmt.where(Asset.kind == kind)
     if status:

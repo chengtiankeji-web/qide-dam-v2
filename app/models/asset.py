@@ -87,6 +87,15 @@ class Asset(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
         ForeignKey("projects.id", ondelete="CASCADE"),
         nullable=False,
     )
+    # 2026-05-10 phase 1.2: 文件归属的 folder · None = "项目根目录"
+    # alembic 006 加上 · before that schema 字段从 5-08 起就声明了但没真持久化
+    # （之前 setattr 是 dynamic attr · 静默 bug · phase 1.2 修复）
+    folder_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("folders.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     owner_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),

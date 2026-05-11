@@ -35,6 +35,7 @@ class AssetOut(BaseModel):
     id: uuid.UUID
     tenant_id: uuid.UUID
     project_id: uuid.UUID
+    folder_id: uuid.UUID | None = None  # 2026-05-10 phase 1.2: 暴露 folder_id 给前端
     name: str
     description: str | None
     sha256: str
@@ -85,3 +86,18 @@ class PresignedUploadOut(BaseModel):
     method: str = "PUT"
     headers: dict[str, str] = Field(default_factory=dict)
     expires_in: int  # seconds
+
+
+class BulkMoveIn(BaseModel):
+    """v3 phase 1.2 (2026-05-10): 批量移动 assets 到指定 folder（同 project 内）。
+
+    target_folder_id=None → 移到根（folder_id 设回 NULL）。
+    跨 project 移动暂不支持，必须同 project。
+    """
+    asset_ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+    target_folder_id: uuid.UUID | None = None
+
+
+class BulkMoveOut(BaseModel):
+    moved: list[uuid.UUID] = Field(default_factory=list)
+    failed: list[dict] = Field(default_factory=list)  # [{id, reason}]

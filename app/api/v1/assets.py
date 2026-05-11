@@ -6,20 +6,25 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import Principal, get_current_principal
 from app.db.session import get_db
+from app.models.asset import Asset
+from app.models.folder import Folder
 from app.schemas.asset import (
     AssetOut,
     AssetUpdate,
+    BulkMoveIn,
+    BulkMoveOut,
     PresignedUploadIn,
     PresignedUploadOut,
 )
 from app.schemas.common import PageOut
-from app.services import asset_service, storage
+from app.services import asset_service, audit_service, storage
+from app.services.audit_service import AuditAction
 
 router = APIRouter()
 
@@ -100,6 +105,126 @@ def _can_see_secret(p: Principal) -> bool:
     return "vault:reveal" in (p.scopes or [])
 
 
+async def _validate_folder_for_project(
+    db: AsyncSession,
+    *,
+    folder_id: uuid.UUID | None,
+    tenant_id: uuid.UUID,
+    project_id: uuid.UUID,
+) -> None:
+    """v3 phase 1.2 (2026-05-10): folder must belong to same project.
+
+    Raises HTTPException(400) on cross-project / cross-tenant / not-found.
+    folder_id=None is fine (= move to root).
+    """
+    if folder_id is None:
+        return
+    row = (await db.execute(
+        select(Folder).where(
+            Folder.id == folder_id,
+            Folder.tenant_id == tenant_id,
+            Folder.project_id == project_id,
+            Folder.deleted_at.is_(None),
+        )
+    )).scalar_one_or_none()
+    if not row:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"folder {folder_id} not found in project · 跨 project 移动暂不支持",
+        )
+
+
+@router.post("/_bulk/move", response_model=BulkMoveOut)
+async def bulk_move(
+    payload: BulkMoveIn,
+    request: Request,
+    p: Principal = Depends(get_current_principal),
+    db: AsyncSession = Depends(get_db),
+) -> BulkMoveOut:
+    """v3 phase 1.2 (2026-05-10): 批量把多个 asset 移动到目标 folder（同 project）。
+
+    流程：
+      1. 拉所有 asset，校验都属于同 project（不同 project 的 asset 一并拒）
+      2. 校验 target_folder_id 也属于同 project（None 等于"放回根"）
+      3. 校验 principal 对该 project 有写权限
+      4. 批量 UPDATE folder_id
+      5. 写一条 asset.moved audit（target_id=project_id · metadata 里塞 asset_ids 和 to/from）
+    """
+    if not payload.asset_ids:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "asset_ids empty")
+
+    # Pull all candidate assets
+    assets_q = await db.execute(
+        select(Asset).where(
+            Asset.id.in_(payload.asset_ids),
+            Asset.tenant_id == p.tenant_id,
+            Asset.deleted_at.is_(None),
+        )
+    )
+    assets = list(assets_q.scalars().all())
+
+    found_ids = {a.id for a in assets}
+    failed: list[dict] = []
+    for aid in payload.asset_ids:
+        if aid not in found_ids:
+            failed.append({"id": str(aid), "reason": "asset not found / archived / cross-tenant"})
+
+    if not assets:
+        return BulkMoveOut(moved=[], failed=failed)
+
+    # All assets must share one project (cross-project bulk move 暂不支持)
+    project_ids = {a.project_id for a in assets}
+    if len(project_ids) > 1:
+        for a in assets:
+            failed.append({"id": str(a.id), "reason": f"cross-project bulk move 暂不支持 · project={a.project_id}"})
+        return BulkMoveOut(moved=[], failed=failed)
+    pid = next(iter(project_ids))
+
+    # ACL: must have access to the project
+    if not p.can_access_project(pid):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, f"no access to project {pid}")
+
+    # Target folder validation (None = root)
+    await _validate_folder_for_project(
+        db, folder_id=payload.target_folder_id, tenant_id=p.tenant_id, project_id=pid
+    )
+
+    # Secret guard — none of the moved assets should be 'secret' for non-elevated principal
+    moved: list[uuid.UUID] = []
+    for a in assets:
+        try:
+            _assert_secret_allowed(a, p)
+        except HTTPException:
+            failed.append({"id": str(a.id), "reason": "sensitivity=secret · move denied"})
+            continue
+        a.folder_id = payload.target_folder_id
+        moved.append(a.id)
+
+    await db.flush()
+
+    # One audit event per bulk operation (not per asset · keeps audit table sane)
+    await audit_service.audit(
+        db,
+        action=AuditAction.ASSET_MOVED,
+        tenant_id=p.tenant_id,
+        project_id=pid,
+        actor_user_id=p.user_id,
+        actor_kind="user" if p.via == "jwt" else "api_key",
+        target_kind="asset",
+        target_id=None,
+        request=request,
+        metadata={
+            "asset_ids": [str(i) for i in moved],
+            "asset_count": len(moved),
+            "target_folder_id": str(payload.target_folder_id) if payload.target_folder_id else None,
+            "operation": "bulk_move",
+            "failed_count": len(failed),
+        },
+    )
+
+    return BulkMoveOut(moved=moved, failed=failed)
+
+
 @router.get("", response_model=PageOut[AssetOut])
 async def list_assets(
     project_id: uuid.UUID | None = Query(None),
@@ -121,6 +246,15 @@ async def list_assets(
     show_trashed: bool = Query(
         False,
         description="True = 只显示回收站（deleted_at IS NOT NULL）· False = 默认显示活资产 · 永远不混合",
+    ),
+    folder_id: str | None = Query(
+        None,
+        description=(
+            "phase 1.2 (2026-05-10) folder filter："
+            "传 'root' 或 '__root__' = 只显示根目录（folder_id IS NULL）· "
+            "传 UUID = 只显示该 folder 下的 · "
+            "省略 = 不按 folder 过滤（项目下所有资产）"
+        ),
     ),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
@@ -147,6 +281,20 @@ async def list_assets(
     else:
         effective_include_secret = _can_see_secret(p)  # 默认按 principal 推断
 
+    # phase 1.2 folder filter parse
+    folder_filter: str | uuid.UUID | None = None
+    if folder_id is not None:
+        if folder_id in ("root", "__root__", "null", ""):
+            folder_filter = "__root__"
+        else:
+            try:
+                folder_filter = uuid.UUID(folder_id)
+            except ValueError:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    f"folder_id must be 'root', 'null', or a UUID · got {folder_id!r}",
+                )
+
     items, total = await asset_service.list_assets(
         db,
         tenant_id=effective_tenant_id,
@@ -158,6 +306,7 @@ async def list_assets(
         page_size=page_size,
         exclude_secret=not effective_include_secret,
         show_trashed=show_trashed,
+        folder_filter=folder_filter,
     )
     # 2026-04-29 perf: 列表里给 image kind 一次性签 thumb sm presigned URL
     # 客户端不再需要单独 round-trip 拿 download-url
@@ -238,6 +387,7 @@ def _assert_secret_allowed(asset, p: Principal) -> None:
 async def update_asset(
     asset_id: uuid.UUID,
     payload: AssetUpdate,
+    request: Request,
     p: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> AssetOut:
@@ -251,11 +401,46 @@ async def update_asset(
     _assert_secret_allowed(asset, p)
 
     data = payload.model_dump(exclude_unset=True)
+
+    # 2026-05-10 phase 1.2: 如果改 folder_id，先校验目标 folder 同 project
+    folder_changed = False
+    old_folder_id = asset.folder_id
+    if "folder_id" in data:
+        new_folder_id = data["folder_id"]
+        if new_folder_id != old_folder_id:
+            await _validate_folder_for_project(
+                db,
+                folder_id=new_folder_id,
+                tenant_id=effective_tid,
+                project_id=asset.project_id,
+            )
+            folder_changed = True
+
     for field, value in data.items():
         setattr(asset, field, value)
     if asset.acl == "public" and not asset.public_url:
         asset.public_url = storage.public_url_for(asset.storage_key)
     await db.flush()
+
+    # Audit: 移动单独写 asset.moved · 其他改动写 asset.updated
+    if folder_changed:
+        await audit_service.audit(
+            db,
+            action=AuditAction.ASSET_MOVED,
+            tenant_id=effective_tid,
+            project_id=asset.project_id,
+            actor_user_id=p.user_id,
+            actor_kind="user" if p.via == "jwt" else "api_key",
+            target_kind="asset",
+            target_id=asset.id,
+            request=request,
+            metadata={
+                "from_folder_id": str(old_folder_id) if old_folder_id else None,
+                "to_folder_id": str(asset.folder_id) if asset.folder_id else None,
+                "operation": "single_move",
+            },
+        )
+
     return AssetOut.model_validate(asset)
 
 
