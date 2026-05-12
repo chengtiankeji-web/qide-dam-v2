@@ -22,6 +22,7 @@ from app.api.v1 import (
     wecom,
     workflows,
 )
+from app.api.v1.crm import crm_router
 
 api_router = APIRouter(prefix="/v1")
 api_router.include_router(health.router, tags=["health"])
@@ -49,3 +50,6 @@ api_router.include_router(intake.router, prefix="/intake", tags=["intake"])
 
 # v4 Social Matrix
 api_router.include_router(social.router, prefix="/social", tags=["social"])
+
+# v7 CRM (leads + contacts + accounts + deals + quotes + emails + activities + dashboard)
+api_router.include_router(crm_router, prefix="/crm")
