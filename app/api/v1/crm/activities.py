@@ -37,7 +37,8 @@ class ActivityCreate(BaseModel):
 
 
 class ActivityOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    # ORM 属性叫 extra_metadata (SQLAlchemy `metadata` 保留) · API 仍叫 metadata · 用 alias 映射
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
     id: uuid.UUID
     tenant_id: uuid.UUID
@@ -62,7 +63,7 @@ class ActivityOut(BaseModel):
     task_due_at: Optional[datetime]
     task_completed_at: Optional[datetime]
     task_priority: Optional[str]
-    metadata: Optional[dict]
+    metadata: Optional[dict] = Field(None, alias="extra_metadata")
     attachments: Optional[list[dict]]
     created_at: datetime
 
@@ -95,7 +96,7 @@ async def create_activity(
         meeting_outcome=payload.meeting_outcome,
         task_due_at=payload.task_due_at,
         task_priority=payload.task_priority,
-        metadata=payload.metadata,
+        extra_metadata=payload.metadata,
         attachments=payload.attachments,
     )
     await db.commit()

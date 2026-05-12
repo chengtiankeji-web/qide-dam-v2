@@ -43,7 +43,7 @@ async def create_activity(
     meeting_outcome: Optional[str] = None,
     task_due_at: Optional[datetime] = None,
     task_priority: Optional[str] = None,
-    metadata: Optional[dict] = None,
+    extra_metadata: Optional[dict] = None,
     attachments: Optional[list[dict]] = None,
 ) -> CRMActivity:
     activity = CRMActivity(
@@ -60,7 +60,7 @@ async def create_activity(
         meeting_outcome=meeting_outcome,
         task_due_at=task_due_at,
         task_priority=task_priority,
-        metadata=metadata,
+        extra_metadata=extra_metadata,
         attachments=attachments,
     )
     db.add(activity)

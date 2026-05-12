@@ -243,17 +243,17 @@ async def handle_resend_webhook(db, event: dict) -> None:
         # 自动写 click event 到 metadata
         click_url = data.get("click", {}).get("link")
         if click_url:
-            md = activity.metadata or {}
+            md = activity.extra_metadata or {}
             clicks = md.get("click_events", [])
             clicks.append({"url": click_url, "ts": now.isoformat()})
             md["click_events"] = clicks
-            activity.metadata = md
+            activity.extra_metadata = md
 
     elif event_type == "email.bounced":
-        md = activity.metadata or {}
+        md = activity.extra_metadata or {}
         md["bounced_at"] = now.isoformat()
         md["bounce_reason"] = data.get("bounce", {}).get("message")
-        activity.metadata = md
+        activity.extra_metadata = md
         # 标 contact bounced（避免再发）
         if activity.entity_type == "contact":
             from app.models.crm.contact import Contact

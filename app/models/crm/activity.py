@@ -59,7 +59,8 @@ class CRMActivity(Base):
     task_completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     task_priority: Mapped[Optional[str]] = mapped_column(String(16))
 
-    metadata: Mapped[Optional[dict]] = mapped_column(JSONB)
+    # DB 列名保持 metadata（与 alembic 009 一致）· Python 属性改名避开 SQLAlchemy reserved
+    extra_metadata: Mapped[Optional[dict]] = mapped_column("metadata", JSONB)
     attachments: Mapped[Optional[list[dict]]] = mapped_column(JSONB)
 
     created_at: Mapped[datetime] = mapped_column(
