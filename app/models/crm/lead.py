@@ -100,7 +100,10 @@ class Lead(Base):
         DateTime(timezone=True), index=True
     )
     qualified_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    converted_to_deal_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True))
+    converted_to_deal_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("deals.id", ondelete="SET NULL"),
+    )
     converted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     lost_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     lost_reason: Mapped[Optional[str]] = mapped_column(String(128))
