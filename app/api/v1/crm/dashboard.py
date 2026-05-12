@@ -17,7 +17,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import Principal, require_authenticated
+from app.core.deps import Principal, get_current_principal
 from app.db.session import get_db
 from app.services.crm import dashboard_service
 
@@ -27,7 +27,7 @@ router = APIRouter()
 @router.get("/")
 async def get_dashboard(
     factory_slug: Optional[str] = Query(None, description="筛选单工厂"),
-    principal: Principal = Depends(require_authenticated),
+    principal: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """CRM 销售仪表盘聚合 API"""

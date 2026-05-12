@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status as http_s
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import Principal, require_authenticated
+from app.core.deps import Principal, get_current_principal
 from app.db.session import get_db
 from app.services.crm import email_service
 
@@ -40,7 +40,7 @@ class SendEmailOut(BaseModel):
 @router.post("/send", response_model=SendEmailOut, status_code=http_status.HTTP_202_ACCEPTED)
 async def send_email(
     payload: SendEmailIn,
-    principal: Principal = Depends(require_authenticated),
+    principal: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> SendEmailOut:
     """发送邮件 · 写 activity timeline + 关联 lead/deal/quote/contact"""

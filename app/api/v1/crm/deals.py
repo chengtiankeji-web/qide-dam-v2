@@ -7,7 +7,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import Principal, require_authenticated
+from app.core.deps import Principal, get_current_principal
 from app.db.session import get_db
 from app.schemas.crm.deal import (
     DealCreate, DealOut, DealListOut, DealStageTransitionIn, PipelineForecastOut,
@@ -20,7 +20,7 @@ router = APIRouter()
 @router.post("/", response_model=DealOut, status_code=http_status.HTTP_201_CREATED)
 async def create_deal(
     payload: DealCreate,
-    principal: Principal = Depends(require_authenticated),
+    principal: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> DealOut:
     deal = await deals_service.create_deal(
@@ -50,7 +50,7 @@ async def list_deals(
     account_id: Optional[uuid.UUID] = Query(None),
     limit: int = Query(50, le=200),
     offset: int = Query(0, ge=0),
-    principal: Principal = Depends(require_authenticated),
+    principal: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> DealListOut:
     rows = await deals_service.list_deals(
@@ -73,7 +73,7 @@ async def list_deals(
 @router.get("/{deal_id}", response_model=DealOut)
 async def get_deal(
     deal_id: uuid.UUID,
-    principal: Principal = Depends(require_authenticated),
+    principal: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> DealOut:
     from app.models.crm.deal import Deal
@@ -89,7 +89,7 @@ async def get_deal(
 async def transition_stage(
     deal_id: uuid.UUID,
     payload: DealStageTransitionIn,
-    principal: Principal = Depends(require_authenticated),
+    principal: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> DealOut:
     try:
@@ -112,7 +112,7 @@ async def transition_stage(
 async def get_pipeline_forecast(
     factory_slug: Optional[str] = Query(None),
     owner_user_id: Optional[uuid.UUID] = Query(None),
-    principal: Principal = Depends(require_authenticated),
+    principal: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> PipelineForecastOut:
     """漏斗 forecast·按 stage 聚合金额"""

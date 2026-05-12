@@ -19,7 +19,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import Principal, require_authenticated
+from app.core.deps import Principal, get_current_principal
 from app.db.session import get_db
 from app.schemas.crm.lead import (
     LeadCreate,
@@ -43,7 +43,7 @@ router = APIRouter()
 @router.post("/", response_model=LeadOut, status_code=http_status.HTTP_201_CREATED)
 async def create_lead(
     payload: LeadCreate,
-    principal: Principal = Depends(require_authenticated),
+    principal: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> LeadOut:
     """创建新询盘·自动跑 6 要素分级"""
@@ -95,7 +95,7 @@ async def list_leads(
     offset: int = Query(0, ge=0),
     order_by: str = Query("created_at_desc",
                           pattern="^(created_at_desc|score_desc|last_activity_desc)$"),
-    principal: Principal = Depends(require_authenticated),
+    principal: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> LeadListOut:
     """列询盘"""
@@ -129,7 +129,7 @@ async def list_leads(
 @router.get("/{lead_id}", response_model=LeadOut)
 async def get_lead(
     lead_id: uuid.UUID,
-    principal: Principal = Depends(require_authenticated),
+    principal: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> LeadOut:
     from app.models.crm.lead import Lead
@@ -148,7 +148,7 @@ async def get_lead(
 @router.post("/{lead_id}/reclassify", response_model=LeadOut)
 async def reclassify_lead(
     lead_id: uuid.UUID,
-    principal: Principal = Depends(require_authenticated),
+    principal: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> LeadOut:
     lead = await leads_service.reclassify(db, principal=principal, lead_id=lead_id)
@@ -164,7 +164,7 @@ async def reclassify_lead(
 async def override_classification(
     lead_id: uuid.UUID,
     payload: LeadOverrideClassificationIn,
-    principal: Principal = Depends(require_authenticated),
+    principal: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> LeadOut:
     lead = await leads_service.override_classification(
@@ -186,7 +186,7 @@ async def override_classification(
 async def assign_lead(
     lead_id: uuid.UUID,
     payload: LeadAssignIn,
-    principal: Principal = Depends(require_authenticated),
+    principal: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> LeadOut:
     lead = await leads_service.assign(
@@ -204,7 +204,7 @@ async def assign_lead(
 async def transition_lead_status(
     lead_id: uuid.UUID,
     payload: LeadTransitionIn,
-    principal: Principal = Depends(require_authenticated),
+    principal: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> LeadOut:
     try:
@@ -231,7 +231,7 @@ async def transition_lead_status(
 async def convert_lead_to_deal(
     lead_id: uuid.UUID,
     payload: LeadConvertIn,
-    principal: Principal = Depends(require_authenticated),
+    principal: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> LeadDealOut:
     try:

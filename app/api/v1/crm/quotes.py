@@ -7,7 +7,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import Principal, require_authenticated
+from app.core.deps import Principal, get_current_principal
 from app.db.session import get_db
 from app.schemas.crm.quote import (
     QuoteCreate, QuoteOut, QuoteListOut, QuoteUpdate,
@@ -21,7 +21,7 @@ router = APIRouter()
 @router.post("/", response_model=QuoteOut, status_code=http_status.HTTP_201_CREATED)
 async def create_quote(
     payload: QuoteCreate,
-    principal: Principal = Depends(require_authenticated),
+    principal: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> QuoteOut:
     quote = await quotes_service.create_quote(
@@ -56,7 +56,7 @@ async def list_quotes(
     status: Optional[str] = Query(None),
     limit: int = Query(50, le=200),
     offset: int = Query(0, ge=0),
-    principal: Principal = Depends(require_authenticated),
+    principal: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> QuoteListOut:
     rows = await quotes_service.list_quotes(
@@ -78,7 +78,7 @@ async def list_quotes(
 @router.get("/{quote_id}", response_model=QuoteOut)
 async def get_quote(
     quote_id: uuid.UUID,
-    principal: Principal = Depends(require_authenticated),
+    principal: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> QuoteOut:
     from app.models.crm.quote import Quote
@@ -94,7 +94,7 @@ async def get_quote(
 async def update_quote(
     quote_id: uuid.UUID,
     payload: QuoteUpdate,
-    principal: Principal = Depends(require_authenticated),
+    principal: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> QuoteOut:
     """编辑 quote · 仅 draft/revised 状态可改"""
@@ -120,7 +120,7 @@ async def update_quote(
 async def transition_quote(
     quote_id: uuid.UUID,
     payload: QuoteStatusTransitionIn,
-    principal: Principal = Depends(require_authenticated),
+    principal: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> QuoteOut:
     try:
@@ -141,7 +141,7 @@ async def transition_quote(
 async def generate_quote_pdf(
     quote_id: uuid.UUID,
     locale: str = Query("en", pattern="^(en|zh)$"),
-    principal: Principal = Depends(require_authenticated),
+    principal: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> QuotePdfOut:
     """生成 PDF + 上 R2 · 返回 1 小时 expiry signed URL"""
@@ -164,7 +164,7 @@ async def generate_quote_pdf(
 async def send_quote(
     quote_id: uuid.UUID,
     payload: QuoteSendIn,
-    principal: Principal = Depends(require_authenticated),
+    principal: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> QuoteOut:
     """生成 PDF + 发邮件给客户 + 改 status='sent'"""

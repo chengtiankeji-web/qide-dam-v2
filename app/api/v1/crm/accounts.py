@@ -7,7 +7,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import Principal, require_authenticated
+from app.core.deps import Principal, get_current_principal
 from app.db.session import get_db
 from app.schemas.crm.account import (
     AccountCreate, AccountOut, AccountListOut, AccountMergeIn,
@@ -20,7 +20,7 @@ router = APIRouter()
 @router.post("/", response_model=AccountOut, status_code=http_status.HTTP_201_CREATED)
 async def create_account(
     payload: AccountCreate,
-    principal: Principal = Depends(require_authenticated),
+    principal: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> AccountOut:
     account = await accounts_service.create_account(
@@ -51,7 +51,7 @@ async def list_accounts(
     search: Optional[str] = Query(None, max_length=128),
     limit: int = Query(50, le=200),
     offset: int = Query(0, ge=0),
-    principal: Principal = Depends(require_authenticated),
+    principal: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> AccountListOut:
     rows = await accounts_service.list_accounts(
@@ -73,7 +73,7 @@ async def list_accounts(
 @router.get("/{account_id}", response_model=AccountOut)
 async def get_account(
     account_id: uuid.UUID,
-    principal: Principal = Depends(require_authenticated),
+    principal: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> AccountOut:
     from app.models.crm.account import Account
@@ -88,7 +88,7 @@ async def get_account(
 @router.post("/merge", response_model=AccountOut)
 async def merge_accounts(
     payload: AccountMergeIn,
-    principal: Principal = Depends(require_authenticated),
+    principal: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> AccountOut:
     """合并 2 个重复公司·把 merge_id 的 contacts/deals/leads 转给 keep_id"""

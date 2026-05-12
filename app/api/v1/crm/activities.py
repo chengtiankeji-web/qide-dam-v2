@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status as http_sta
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import Principal, require_authenticated
+from app.core.deps import Principal, get_current_principal
 from app.db.session import get_db
 from app.services.crm import activities_service
 
@@ -77,7 +77,7 @@ class ActivityListOut(BaseModel):
 @router.post("/", response_model=ActivityOut, status_code=http_status.HTTP_201_CREATED)
 async def create_activity(
     payload: ActivityCreate,
-    principal: Principal = Depends(require_authenticated),
+    principal: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> ActivityOut:
     activity = await activities_service.create_activity(
@@ -110,7 +110,7 @@ async def list_activities(
     performed_by_user_id: Optional[uuid.UUID] = Query(None),
     limit: int = Query(100, le=500),
     offset: int = Query(0, ge=0),
-    principal: Principal = Depends(require_authenticated),
+    principal: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> ActivityListOut:
     rows = await activities_service.list_activities(
@@ -132,7 +132,7 @@ async def list_activities(
 @router.post("/{activity_id}/complete-task", response_model=ActivityOut)
 async def complete_task(
     activity_id: uuid.UUID,
-    principal: Principal = Depends(require_authenticated),
+    principal: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> ActivityOut:
     try:
@@ -146,7 +146,7 @@ async def complete_task(
 @router.get("/overdue-tasks", response_model=ActivityListOut)
 async def get_overdue_tasks(
     user_id: Optional[uuid.UUID] = Query(None),
-    principal: Principal = Depends(require_authenticated),
+    principal: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> ActivityListOut:
     rows = await activities_service.get_overdue_tasks(

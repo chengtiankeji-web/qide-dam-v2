@@ -7,7 +7,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import Principal, require_authenticated
+from app.core.deps import Principal, get_current_principal
 from app.db.session import get_db
 from app.schemas.crm.contact import (
     ContactCreate, ContactOut, ContactListOut, ContactUpdate
@@ -20,7 +20,7 @@ router = APIRouter()
 @router.post("/", response_model=ContactOut, status_code=http_status.HTTP_201_CREATED)
 async def create_contact(
     payload: ContactCreate,
-    principal: Principal = Depends(require_authenticated),
+    principal: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> ContactOut:
     contact = await contacts_service.create_contact(
@@ -47,7 +47,7 @@ async def list_contacts(
     search: Optional[str] = Query(None, max_length=128),
     limit: int = Query(50, le=200),
     offset: int = Query(0, ge=0),
-    principal: Principal = Depends(require_authenticated),
+    principal: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> ContactListOut:
     rows = await contacts_service.list_contacts(
@@ -69,7 +69,7 @@ async def list_contacts(
 @router.get("/{contact_id}", response_model=ContactOut)
 async def get_contact(
     contact_id: uuid.UUID,
-    principal: Principal = Depends(require_authenticated),
+    principal: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> ContactOut:
     from app.models.crm.contact import Contact
@@ -85,7 +85,7 @@ async def get_contact(
 async def unsubscribe_contact(
     contact_id: uuid.UUID,
     reason: Optional[str] = Query(None, max_length=256),
-    principal: Principal = Depends(require_authenticated),
+    principal: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> ContactOut:
     contact = await contacts_service.unsubscribe(
