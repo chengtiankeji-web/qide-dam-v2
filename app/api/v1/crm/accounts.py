@@ -17,7 +17,7 @@ from app.services.crm import accounts_service
 router = APIRouter()
 
 
-@router.post("/", response_model=AccountOut, status_code=http_status.HTTP_201_CREATED)
+@router.post("", response_model=AccountOut, status_code=http_status.HTTP_201_CREATED)
 async def create_account(
     payload: AccountCreate,
     principal: Principal = Depends(get_current_principal),
@@ -44,7 +44,7 @@ async def create_account(
     return AccountOut.model_validate(account)
 
 
-@router.get("/", response_model=AccountListOut)
+@router.get("", response_model=AccountListOut)
 async def list_accounts(
     country: Optional[str] = Query(None),
     industry: Optional[str] = Query(None),

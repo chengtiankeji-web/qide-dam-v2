@@ -18,7 +18,7 @@ from app.services.crm import quotes_service
 router = APIRouter()
 
 
-@router.post("/", response_model=QuoteOut, status_code=http_status.HTTP_201_CREATED)
+@router.post("", response_model=QuoteOut, status_code=http_status.HTTP_201_CREATED)
 async def create_quote(
     payload: QuoteCreate,
     principal: Principal = Depends(get_current_principal),
@@ -49,7 +49,7 @@ async def create_quote(
     return QuoteOut.model_validate(quote)
 
 
-@router.get("/", response_model=QuoteListOut)
+@router.get("", response_model=QuoteListOut)
 async def list_quotes(
     deal_id: Optional[uuid.UUID] = Query(None),
     account_id: Optional[uuid.UUID] = Query(None),

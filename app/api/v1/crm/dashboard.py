@@ -24,7 +24,7 @@ from app.services.crm import dashboard_service
 router = APIRouter()
 
 
-@router.get("/")
+@router.get("")
 async def get_dashboard(
     factory_slug: Optional[str] = Query(None, description="筛选单工厂"),
     principal: Principal = Depends(get_current_principal),

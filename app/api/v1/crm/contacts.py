@@ -17,7 +17,7 @@ from app.services.crm import contacts_service
 router = APIRouter()
 
 
-@router.post("/", response_model=ContactOut, status_code=http_status.HTTP_201_CREATED)
+@router.post("", response_model=ContactOut, status_code=http_status.HTTP_201_CREATED)
 async def create_contact(
     payload: ContactCreate,
     principal: Principal = Depends(get_current_principal),
@@ -40,7 +40,7 @@ async def create_contact(
     return ContactOut.model_validate(contact)
 
 
-@router.get("/", response_model=ContactListOut)
+@router.get("", response_model=ContactListOut)
 async def list_contacts(
     account_id: Optional[uuid.UUID] = Query(None),
     role_category: Optional[str] = Query(None),

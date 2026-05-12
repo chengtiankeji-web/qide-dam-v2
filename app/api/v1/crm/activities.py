@@ -75,7 +75,7 @@ class ActivityListOut(BaseModel):
 
 # ── Endpoints ──────────────────────────────────────────
 
-@router.post("/", response_model=ActivityOut, status_code=http_status.HTTP_201_CREATED)
+@router.post("", response_model=ActivityOut, status_code=http_status.HTTP_201_CREATED)
 async def create_activity(
     payload: ActivityCreate,
     principal: Principal = Depends(get_current_principal),
@@ -103,7 +103,7 @@ async def create_activity(
     return ActivityOut.model_validate(activity)
 
 
-@router.get("/", response_model=ActivityListOut)
+@router.get("", response_model=ActivityListOut)
 async def list_activities(
     entity_type: Optional[str] = Query(None, pattern="^(lead|contact|account|deal|quote)$"),
     entity_id: Optional[uuid.UUID] = Query(None),

@@ -17,7 +17,7 @@ from app.services.crm import deals_service
 router = APIRouter()
 
 
-@router.post("/", response_model=DealOut, status_code=http_status.HTTP_201_CREATED)
+@router.post("", response_model=DealOut, status_code=http_status.HTTP_201_CREATED)
 async def create_deal(
     payload: DealCreate,
     principal: Principal = Depends(get_current_principal),
@@ -42,7 +42,7 @@ async def create_deal(
     return DealOut.model_validate(deal)
 
 
-@router.get("/", response_model=DealListOut)
+@router.get("", response_model=DealListOut)
 async def list_deals(
     factory_slug: Optional[str] = Query(None),
     stage: Optional[str] = Query(None),

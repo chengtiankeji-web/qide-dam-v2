@@ -40,7 +40,7 @@ router = APIRouter()
 # POST · 创建
 # ════════════════════════════════════════════════════════════
 
-@router.post("/", response_model=LeadOut, status_code=http_status.HTTP_201_CREATED)
+@router.post("", response_model=LeadOut, status_code=http_status.HTTP_201_CREATED)
 async def create_lead(
     payload: LeadCreate,
     principal: Principal = Depends(get_current_principal),
@@ -83,7 +83,7 @@ async def create_lead(
 # GET · 列表
 # ════════════════════════════════════════════════════════════
 
-@router.get("/", response_model=LeadListOut)
+@router.get("", response_model=LeadListOut)
 async def list_leads(
     factory_slug: Optional[str] = Query(None),
     classification: Optional[str] = Query(None, pattern="^[ABCD]$"),
