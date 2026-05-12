@@ -73,6 +73,11 @@ from app.api.v1.share_links import public_router as _share_public_router  # noqa
 
 app.include_router(_share_public_router, prefix="/p", tags=["public"])
 
+# v4 · URL dynamic image transforms (Cloudinary-style) at /img/...
+from app.api.img import router as _img_router  # noqa: E402
+
+app.include_router(_img_router, prefix="/img", tags=["img"])
+
 
 @app.get("/")
 async def root() -> dict:

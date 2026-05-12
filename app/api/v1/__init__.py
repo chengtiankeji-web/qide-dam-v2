@@ -8,9 +8,11 @@ from app.api.v1 import (
     collections,
     folders,
     health,
+    intake,
     projects,
     search,
     share_links,
+    social,
     tenants,
     uploads,
     usage,
@@ -41,3 +43,9 @@ api_router.include_router(wecom.router, prefix="/wecom", tags=["wecom"])
 # v3 P0-1 + P0-2
 api_router.include_router(vault.router, tags=["vault"])
 api_router.include_router(audit.router, tags=["audit"])
+
+# v4 Smart Intake
+api_router.include_router(intake.router, prefix="/intake", tags=["intake"])
+
+# v4 Social Matrix
+api_router.include_router(social.router, prefix="/social", tags=["social"])

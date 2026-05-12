@@ -467,6 +467,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.api_key:
         os.environ["DAM_API_KEY"] = args.api_key
+    # v4 · register CRM tools on import (decorators bind to global `mcp`)
+    from app.mcp import crm_tools  # noqa: F401
     mcp.run(transport=args.transport)
 
 

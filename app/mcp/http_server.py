@@ -56,6 +56,9 @@ def _resolve_key():
 
 _server_module._get_runtime_api_key = _resolve_key  # type: ignore[assignment]
 
+# v4 · register CRM MCP tools on import (decorators bind to global `mcp`)
+from app.mcp import crm_tools as _crm_tools  # noqa: E402, F401
+
 
 def build_http_app() -> FastAPI:
     app = FastAPI(title="QideDAM MCP HTTP", version="2.0.0")

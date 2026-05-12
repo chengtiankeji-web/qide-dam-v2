@@ -57,6 +57,13 @@ class Settings(BaseSettings):
     # --- AI ---
     DASHSCOPE_API_KEY: str = ""
     OPENAI_API_KEY: str = ""
+    KIMI_API_KEY: str = ""                  # v4 Smart Intake 用
+    KIMI_API_URL: str = "https://api.moonshot.cn/v1/chat/completions"
+
+    # --- Email (Resend · v7 CRM 起用) ---
+    RESEND_API_KEY: str = ""                # re_xxx
+    RESEND_FROM_EMAIL: str = "noreply@qidelinktech.com"
+    RESEND_WEBHOOK_SECRET: str = ""         # Svix signing secret · webhook 验签
 
     # --- Notifications · WeCom (企业微信内部应用) ---
     WECOM_BOT_URL: str = ""               # 旧 · 群机器人 webhook（保留兼容）
@@ -89,6 +96,26 @@ class Settings(BaseSettings):
     # HMAC key for indexable hashes (Vault domain hash, search tokens, etc.).
     # Same generation pattern as VAULT_KEK_HEX.
     VAULT_HMAC_HEX: str = "1" * 64
+
+    # ══ v4 · Smart Intake + Social Matrix + URL transform ══
+    # Allowed root paths for /v1/intake/jobs source_path (comma-separated)
+    INTAKE_ALLOWED_ROOTS: str = "/mnt/intake,/data/factories"
+    # Optional dedicated HMAC key for image URL signing; falls back to VAULT_HMAC_HEX
+    IMG_SIGN_KEY_HEX: str = ""
+    # 5 Developer App credentials (all under 青玄 HK · CR 79771658)
+    LINKEDIN_CLIENT_ID: str = ""
+    LINKEDIN_CLIENT_SECRET: str = ""
+    META_APP_ID: str = ""
+    META_APP_SECRET: str = ""
+    TIKTOK_CLIENT_KEY: str = ""
+    TIKTOK_CLIENT_SECRET: str = ""
+    X_CLIENT_ID: str = ""
+    X_CLIENT_SECRET: str = ""
+    GOOGLE_OAUTH_CLIENT_ID: str = ""
+    GOOGLE_OAUTH_CLIENT_SECRET: str = ""
+    SOCIAL_OAUTH_REDIRECT_BASE: str = (
+        "https://dam-api.qidelinktech.com/v1/social/oauth"
+    )
 
     @computed_field  # type: ignore[prop-decorator]
     @property

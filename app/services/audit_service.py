@@ -94,6 +94,53 @@ class AuditAction:
     AI_ANSWER_DELIVERED = "ai.answer_delivered"
     AI_TOOL_DENIED = "ai.tool_denied"
 
+    # CRM (v7 · alembic 009_crm_core)
+    LEAD_CREATED = "lead.created"
+    LEAD_RECLASSIFIED = "lead.reclassified"
+    LEAD_CLASSIFICATION_OVERRIDDEN = "lead.classification_overridden"
+    LEAD_ASSIGNED = "lead.assigned"
+    LEAD_STATUS_CHANGED = "lead.status_changed"
+    LEAD_CONVERTED_TO_DEAL = "lead.converted_to_deal"
+    LEAD_DELETED = "lead.deleted"
+    DEAL_CREATED = "deal.created"
+    DEAL_STAGE_CHANGED = "deal.stage_changed"
+    DEAL_WON = "deal.won"
+    DEAL_LOST = "deal.lost"
+    QUOTE_CREATED = "quote.created"
+    QUOTE_SENT = "quote.sent"
+    QUOTE_VIEWED = "quote.viewed"  # 客户打开（via tracking pixel）
+    QUOTE_ACCEPTED = "quote.accepted"
+    QUOTE_DECLINED = "quote.declined"
+    ACCOUNT_CREATED = "account.created"
+    ACCOUNT_MERGED = "account.merged"
+    CONTACT_CREATED = "contact.created"
+    CONTACT_UNSUBSCRIBED = "contact.unsubscribed"
+
+    # Smart Intake (v4 · alembic 007_intake_jobs)
+    INTAKE_JOB_CREATED = "intake.job_created"
+    INTAKE_JOB_SCANNED = "intake.job_scanned"
+    INTAKE_JOB_CLASSIFIED = "intake.job_classified"
+    INTAKE_JOB_CLUSTERED = "intake.job_clustered"
+    INTAKE_JOB_REVIEW_READY = "intake.job_review_ready"
+    INTAKE_JOB_APPROVED = "intake.job_approved"
+    INTAKE_JOB_REJECTED = "intake.job_rejected"
+    INTAKE_JOB_PUSHED = "intake.job_pushed"
+    INTAKE_JOB_FAILED = "intake.job_failed"
+    INTAKE_ITEM_OVERRIDDEN = "intake.item_overridden"  # 用户改 subdir/filename/tags
+    INTAKE_CLUSTER_RENAMED = "intake.cluster_renamed"
+
+    # Social Matrix (v2 · alembic 008_social_accounts)
+    SOCIAL_CREDENTIAL_CREATED = "social.credential_created"
+    SOCIAL_CREDENTIAL_REVEALED = "social.credential_revealed"
+    SOCIAL_CREDENTIAL_REVOKED = "social.credential_revoked"
+    SOCIAL_CREDENTIAL_DECRYPT_FAILED = "social.credential_decrypt_failed"
+    SOCIAL_ACCOUNT_CONNECTED = "social.account_connected"
+    SOCIAL_ACCOUNT_DISCONNECTED = "social.account_disconnected"
+    SOCIAL_POST_DRAFTED = "social.post_drafted"
+    SOCIAL_POST_APPROVED = "social.post_approved"
+    SOCIAL_POST_PUBLISHED = "social.post_published"
+    SOCIAL_POST_FAILED = "social.post_failed"
+
 
 # Actions that REQUIRE `purpose` to be set — enforced in audit().
 _PURPOSE_REQUIRED_ACTIONS = frozenset(

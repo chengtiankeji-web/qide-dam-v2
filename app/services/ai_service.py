@@ -310,3 +310,127 @@ def tag_image(image_bytes: bytes) -> dict[str, Any]:
     parsed.setdefault("alt_text", "")
     parsed.setdefault("visual_description", "")
     return parsed
+
+
+# ════════════════════════════════════════════════════════════
+# JSON-mode completion · Smart Intake v4 用
+# ════════════════════════════════════════════════════════════
+
+def complete_json(
+    prompt: str,
+    *,
+    system: str | None = None,
+    max_tokens: int = 2048,
+    temperature: float = 0.2,
+) -> tuple[dict | list | None, dict]:
+    """跟 text_gen 一样调 qwen3.6-flash · 但承诺解析 JSON
+
+    返：(parsed_json_or_none, usage_info_dict)
+      usage_info_dict 含 {input_tokens, output_tokens, cost_cny}
+      ← 给 intake_service.bump_job_cost 累计用
+
+    解析失败时 parsed=None · 调用方应该 fallback 到 rule-only
+    """
+    import json as _json
+
+    usage = {"input_tokens": 0, "output_tokens": 0, "cost_cny": 0.0}
+
+    if not has_provider():
+        return None, usage   # caller falls back to rule-only
+
+    if settings.DASHSCOPE_API_KEY:
+        try:
+            messages = []
+            if system:
+                messages.append({"role": "system", "content": system})
+            messages.append({"role": "user", "content": prompt})
+
+            resp = httpx.post(
+                DASHSCOPE_TEXT_GEN_URL,
+                headers={
+                    "Authorization": f"Bearer {settings.DASHSCOPE_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": TEXT_GEN_MODEL,
+                    "input": {"messages": messages},
+                    "parameters": {
+                        "result_format": "message",
+                        "max_tokens": max_tokens,
+                        "temperature": temperature,
+                        "response_format": {"type": "json_object"},
+                    },
+                },
+                timeout=60.0,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            choices = data.get("output", {}).get("choices", [])
+            raw = ""
+            if choices:
+                raw = choices[0].get("message", {}).get("content", "")
+
+            # Token usage
+            tok = data.get("usage", {})
+            usage["input_tokens"] = int(tok.get("input_tokens", 0))
+            usage["output_tokens"] = int(tok.get("output_tokens", 0))
+            # qwen3.6-flash 价：input ¥0.0008/1K, output ¥0.002/1K
+            usage["cost_cny"] = round(
+                usage["input_tokens"] / 1000 * 0.0008
+                + usage["output_tokens"] / 1000 * 0.002,
+                6,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("ai.complete_json.dashscope_failed", error=str(e))
+            return None, usage
+    else:
+        # OpenAI fallback
+        try:
+            messages = []
+            if system:
+                messages.append({"role": "system", "content": system})
+            messages.append({"role": "user", "content": prompt})
+            resp = httpx.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "gpt-4o-mini",
+                    "messages": messages,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                    "response_format": {"type": "json_object"},
+                },
+                timeout=60.0,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            raw = data["choices"][0]["message"]["content"]
+            tok = data.get("usage", {})
+            usage["input_tokens"] = int(tok.get("prompt_tokens", 0))
+            usage["output_tokens"] = int(tok.get("completion_tokens", 0))
+            # gpt-4o-mini: input $0.15/1M, output $0.60/1M · 折 ¥ 1USD=7.2
+            usage["cost_cny"] = round(
+                usage["input_tokens"] / 1_000_000 * 0.15 * 7.2
+                + usage["output_tokens"] / 1_000_000 * 0.60 * 7.2,
+                6,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("ai.complete_json.openai_failed", error=str(e))
+            return None, usage
+
+    # 解析 JSON
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.split("```", 2)[-1]
+        cleaned = cleaned.split("```")[0]
+    if cleaned.startswith("json\n"):
+        cleaned = cleaned[5:]
+    try:
+        parsed = _json.loads(cleaned)
+        return parsed, usage
+    except _json.JSONDecodeError as e:
+        logger.warning("ai.complete_json.parse_failed", error=str(e), raw=raw[:200])
+        return None, usage

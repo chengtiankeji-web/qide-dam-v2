@@ -4,8 +4,10 @@ from app.models.asset import Asset, AssetVersion
 from app.models.audit import AuditEvent
 from app.models.collection import Collection, CollectionAsset
 from app.models.folder import Folder
+from app.models.intake import IntakeCluster, IntakeItem, IntakeJob
 from app.models.project import Project
 from app.models.share_link import ShareLink
+from app.models.social import SocialAccount, SocialCredential, SocialPost
 from app.models.tenant import Tenant
 from app.models.usage_meter import UsageMeter
 from app.models.user import User
@@ -21,9 +23,15 @@ __all__ = [
     "Collection",
     "CollectionAsset",
     "Folder",
+    "IntakeCluster",
+    "IntakeItem",
+    "IntakeJob",
     "MultipartUpload",
     "Project",
     "ShareLink",
+    "SocialAccount",
+    "SocialCredential",
+    "SocialPost",
     "Tenant",
     "UsageMeter",
     "User",

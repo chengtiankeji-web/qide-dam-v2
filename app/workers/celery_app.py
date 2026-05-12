@@ -23,6 +23,8 @@ celery_app = Celery(
         "app.workers.tasks_webhook",
         "app.workers.tasks_pipeline",
         "app.workers.tasks_cleanup",
+        "app.workers.tasks_intake",  # v4 Smart Intake
+        "app.workers.tasks_social",  # v4 Social Matrix
     ],
 )
 
