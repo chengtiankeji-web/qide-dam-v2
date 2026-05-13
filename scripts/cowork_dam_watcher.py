@@ -457,8 +457,31 @@ class State:
             return self.data["entries"].get(sha)
 
     def is_done(self, sha: str) -> bool:
+        """v2.1 (2026-05-13 晚): done OR dam_deleted 都跳过"""
         entry = self.get(sha)
-        return bool(entry and entry.get("stage") == "done")
+        if not entry:
+            return False
+        return entry.get("stage") in ("done", "dam_deleted")
+
+    def is_dam_deleted(self, sha: str) -> bool:
+        """v2.1 #3 watcher delete protection: 用户在 DAM 删过这个 sha"""
+        entry = self.get(sha)
+        return bool(entry and entry.get("stage") == "dam_deleted")
+
+    def mark_dam_deleted(self, sha: str, asset_id: str, rel_path: str) -> None:
+        """v2.1 #3 watcher delete protection (2026-05-13 晚):
+        用户在 DAM admin SPA 删了这个 sha · backend 返回 archived 状态 ·
+        永久标记不再上传 · 即使 state.json 重建也通过 DAM 重新确认。
+        """
+        with self.lock:
+            self.data["entries"][sha] = {
+                "asset_id": asset_id,
+                "stage": "dam_deleted",
+                "marked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "path": rel_path,
+                "note": "User deleted this in DAM admin SPA · do NOT re-upload",
+            }
+            self._flush_locked()
 
     def mark_pending_confirm(self, sha: str, asset_id: str, rel_path: str) -> None:
         """PUT R2 成功 · confirm 失败时落这个状态 · 下次 tick 只重 confirm"""
@@ -1005,6 +1028,19 @@ class Uploader:
 
                 # v3 P1.3: deduplicated=True 时 backend 已返既有 asset · 跳 PUT/confirm
                 if presign.get("deduplicated"):
+                    # v2.1 #3 watcher delete protection (2026-05-13 晚):
+                    # backend 把 deleted asset 也算 dedup link · 此时 existing_status='archived'
+                    # （或在某些情况下其他状态 · 但 deleted_at IS NOT NULL 在 DB 层）
+                    # 我们看 existing_status · 'archived' 视为 user 主动删 · 永久跳过
+                    existing_status = presign.get("existing_status", "")
+                    if existing_status == "archived":
+                        self.state.mark_dam_deleted(sha, asset_id, rel_path)
+                        log.info(
+                            f"  SKIP (DAM deleted) asset_id={asset_id} · "
+                            f"user deleted in admin SPA · will not re-upload"
+                        )
+                        return
+                    # 正常 dedup 命中 alive asset
                     self.state.mark_done(sha, asset_id, rel_path, deduplicated=True)
                     log.info(f"  OK (dedup link) asset_id={asset_id} · skipped PUT/confirm")
                     return

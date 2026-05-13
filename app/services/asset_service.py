@@ -69,21 +69,43 @@ async def _find_duplicate_by_sha256(
     *,
     project_id: uuid.UUID,
     sha256: str | None,
+    include_deleted: bool = False,
 ) -> Asset | None:
     """phase 1.1 dedup helper · sha256 空时跳过。
 
-    v3 P1.3 (2026-05-13): 调用方应通过 schema 校验保证 sha256 非空 ·
-    但保留 None 跳过逻辑作为防御性编程（schema 校验绕过场景）。
+    v3 P1.3 (2026-05-13):
+      - 调用方应通过 schema 校验保证 sha256 非空（防御性 None 跳过保留）
+      - include_deleted=True · 也找 soft-deleted asset（用户在 DAM 删过的）
+        这条让 watcher 知道"这 sha 是用户主动删的 · 不要再传"。
+        优先返回 alive duplicate；alive 没有时才返 deleted dup。
     """
     if not sha256:
         return None
-    return (
+
+    # 先找 alive
+    alive = (
         await db.execute(
             select(Asset).where(
                 Asset.project_id == project_id,
                 Asset.sha256 == sha256,
                 Asset.deleted_at.is_(None),
-            ).limit(1)
+            ).order_by(Asset.created_at.desc()).limit(1)
+        )
+    ).scalar_one_or_none()
+    if alive:
+        return alive
+
+    if not include_deleted:
+        return None
+
+    # 找 deleted（含 archived / soft-delete）· 返最新一个
+    return (
+        await db.execute(
+            select(Asset).where(
+                Asset.project_id == project_id,
+                Asset.sha256 == sha256,
+                Asset.deleted_at.is_not(None),
+            ).order_by(Asset.deleted_at.desc()).limit(1)
         )
     ).scalar_one_or_none()
 
@@ -128,14 +150,24 @@ async def register_presigned_upload(
     tenant = await _get_tenant(db, tenant_id=tenant_id)
 
     # ── App 层 dedup 检查 ────────────────────────────────────────────
+    # v3 P1.3 #3 watcher delete protection (2026-05-13 晚):
+    # include_deleted=True · 也查 soft-deleted asset · 命中后返回 ·
+    # 客户端（watcher）看到 existing_status='archived' 即可知"DAM 主动删过 · 别再传"。
     if dedup_strategy != "replicate":
         dup = await _find_duplicate_by_sha256(
-            db, project_id=project.id, sha256=payload.sha256
+            db,
+            project_id=project.id,
+            sha256=payload.sha256,
+            include_deleted=(dedup_strategy == "link"),  # link 模式：兼顾删除的
         )
         if dup:
             if dedup_strategy == "link":
+                # 此时 dup 可能是 alive 也可能是 deleted · status 字段透传到客户端
+                # alive: status in (ready/processing/uploading) → watcher 标 done
+                # deleted: status='archived' AND deleted_at != NULL → watcher 标 dam_deleted
                 return dup, None, {}, True
-            # strategy == "reject"
+            # strategy == "reject"（admin SPA 上传场景）
+            # 历史行为：dup 只查 alive · 此处 dup 必是 alive
             raise DuplicateAssetError(dup)
 
     # ── 真上传路径 ───────────────────────────────────────────────────
