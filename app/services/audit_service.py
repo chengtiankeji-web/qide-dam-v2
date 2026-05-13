@@ -69,14 +69,34 @@ class AuditAction:
     API_KEY_REVOKED = "api_key.revoked"
 
     # Asset
-    ASSET_UPLOADED = "asset.uploaded"
+    ASSET_CREATED = "asset.created"            # v3 P1.3 (2026-05-13): presign 成功
+    ASSET_UPLOADED = "asset.uploaded"          # confirm 成功（PUT 完）
     ASSET_PREVIEWED = "asset.previewed"
     ASSET_DOWNLOADED = "asset.downloaded"
     ASSET_UPDATED = "asset.updated"
     ASSET_MOVED = "asset.moved"  # 2026-05-10 phase 1.2: folder_id 切换 / 批量移动专用
     ASSET_DELETED = "asset.deleted"
+    ASSET_RESTORED = "asset.restored"          # v3 P1.3: 从回收站恢复
     ASSET_PERMISSION_CHANGED = "asset.permission_changed"
     ASSET_SHARED = "asset.shared"
+    TRASH_EMPTIED = "asset.trash_emptied"      # v3 P1.3: empty_trash 操作
+
+    # Share Links (v3 P1.3 audit 全覆盖)
+    SHARE_LINK_CREATED = "share_link.created"
+    SHARE_LINK_REVOKED = "share_link.revoked"
+
+    # Projects (v3 P1.3 audit 全覆盖)
+    PROJECT_CREATED = "project.created"
+    PROJECT_UPDATED = "project.updated"
+    PROJECT_DELETED = "project.deleted"
+
+    # R2 housekeeping (v3 P1.3)
+    R2_ORPHAN_RECORDED = "r2_orphan.recorded"
+    R2_ORPHAN_RESOLVED = "r2_orphan.resolved"
+
+    # Reapers
+    REAPER_STALE_UPLOAD = "reaper.stale_upload"
+    REAPER_STUCK_PROCESSING = "reaper.stuck_processing"
 
     # Vault
     VAULT_CREATED = "vault.created"

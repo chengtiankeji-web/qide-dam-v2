@@ -6,6 +6,7 @@ from app.models.collection import Collection, CollectionAsset
 from app.models.folder import Folder
 from app.models.intake import IntakeCluster, IntakeItem, IntakeJob
 from app.models.project import Project
+from app.models.r2_orphan import R2Orphan  # v3 P1.3 (2026-05-13)
 from app.models.share_link import ShareLink
 from app.models.social import SocialAccount, SocialCredential, SocialPost
 from app.models.tenant import Tenant
@@ -28,6 +29,7 @@ __all__ = [
     "IntakeJob",
     "MultipartUpload",
     "Project",
+    "R2Orphan",
     "ShareLink",
     "SocialAccount",
     "SocialCredential",

@@ -19,6 +19,8 @@ from app.schemas.asset import (
     AssetUpdate,
     BulkMoveIn,
     BulkMoveOut,
+    DedupBySha256In,
+    DedupBySha256Out,
     PresignedUploadIn,
     PresignedUploadOut,
 )
@@ -32,18 +34,40 @@ router = APIRouter()
 @router.post("/uploads/presign", response_model=PresignedUploadOut)
 async def presign_upload(
     payload: PresignedUploadIn,
-    skip_dedup: bool = False,
+    request: Request,
+    skip_dedup: bool = Query(
+        False,
+        description="legacy 兼容 · True = dedup_strategy='replicate' 落副本",
+    ),
+    dedup_strategy: str = Query(
+        "link",
+        description="v3 P1.3 (2026-05-13): 命中 sha256 重复时的行为。"
+                    "link (默认 · watcher 友好) = 返既有 asset_id · 客户端跳 PUT/confirm · "
+                    "reject (legacy admin SPA) = 抛 409 让用户决定 · "
+                    "replicate = 跳 dedup 总是新建（用户显式要副本）。",
+        pattern="^(link|reject|replicate)$",
+    ),
     p: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> PresignedUploadOut:
-    """v3 phase 1.1 (2026-05-09): 同 project + 同 sha256 = 重复 → 409 Conflict
-    body 含 sha256 时启用（watcher 默认带 · admin SPA 计算后带）
-    skip_dedup=true 显式跳过 · 用于"我知道是同样的内容但仍想要副本"场景"""
+    """v3 P1.3 (2026-05-13) presign upload · 三层防 dup（schema sha256 严格 · app 层查 dup · DB partial unique index 兜底 race）。
+
+    sha256 在 schema 层就被校验为 64 hex chars · 任何不带 sha 的请求会 422。
+
+    dedup_strategy=link (默认)：watcher 推这个文件 · 已存在 · 返既有 asset_id ·
+                                客户端拿到 deduplicated=True 就知道跳 PUT / 跳 confirm。
+    dedup_strategy=reject：admin SPA 用 · 让用户看见冲突弹窗手动确认。
+    dedup_strategy=replicate：用户显式要副本（罕见 · 例如不同 ACL 分发）。
+    """
     if not p.can_access_project(payload.project_id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "no access to project")
     try:
-        asset, url, headers = await asset_service.register_presigned_upload(
-            db, tenant_id=p.tenant_id, payload=payload, skip_dedup=skip_dedup
+        asset, url, headers, deduplicated = await asset_service.register_presigned_upload(
+            db,
+            tenant_id=p.tenant_id,
+            payload=payload,
+            skip_dedup=skip_dedup,
+            dedup_strategy=dedup_strategy,  # type: ignore[arg-type]
         )
     except asset_service.DuplicateAssetError as e:
         raise HTTPException(
@@ -51,7 +75,8 @@ async def presign_upload(
             detail={
                 "code": "duplicate_asset",
                 "message": "同项目下已有相同 sha256 的资产 · "
-                           "调 ?skip_dedup=true 仍创建副本",
+                           "调 ?dedup_strategy=link 自动用既有 · "
+                           "或 ?dedup_strategy=replicate 强制创建副本",
                 "existing_asset": {
                     "id": str(e.existing.id),
                     "name": e.existing.name,
@@ -65,6 +90,40 @@ async def presign_upload(
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
 
+    # v3 P1.3 D6 audit: asset.created (即使 dedup link 也写 audit · 记录这次请求)
+    await audit_service.audit(
+        db,
+        action=AuditAction.ASSET_CREATED,
+        tenant_id=p.tenant_id,
+        project_id=asset.project_id,
+        actor_user_id=p.user_id,
+        actor_kind="user" if p.via == "jwt" else "api_key",
+        target_kind="asset",
+        target_id=asset.id,
+        request=request,
+        metadata={
+            "filename": payload.filename,
+            "size_bytes": payload.size_bytes,
+            "mime_type": payload.mime_type,
+            "sha256_prefix": payload.sha256[:16],
+            "deduplicated": deduplicated,
+            "dedup_strategy": dedup_strategy,
+        },
+    )
+
+    if deduplicated:
+        # link 路径：客户端跳 PUT 跳 confirm · 直接拿既有 asset 当作 "上传完成"
+        return PresignedUploadOut(
+            asset_id=asset.id,
+            upload_url=None,
+            storage_key=asset.storage_key,
+            method="PUT",
+            headers={},
+            expires_in=0,
+            deduplicated=True,
+            existing_status=asset.status,
+        )
+
     return PresignedUploadOut(
         asset_id=asset.id,
         upload_url=url,
@@ -72,12 +131,68 @@ async def presign_upload(
         method="PUT",
         headers=headers,
         expires_in=900,
+        deduplicated=False,
+        existing_status=None,
     )
+
+
+# ─── v3 P1.3 新增：dedup_by_sha256 端点（清现存重复用） ──────────────
+
+@router.post("/_dedup_by_sha256", response_model=DedupBySha256Out)
+async def dedup_by_sha256(
+    payload: DedupBySha256In,
+    p: Principal = Depends(get_current_principal),
+    db: AsyncSession = Depends(get_db),
+) -> DedupBySha256Out:
+    """v3 P1.3 (2026-05-13) · 一次性清同 project 同 sha256 重复 asset。
+
+    幂等 · 可重复跑 · 跑完应该 dup_groups=0。
+    需要 tenant_admin / platform_admin · 写 audit_event per archive。
+
+    用法：
+      1. dry_run=true（默认）跑一次看会动多少 · 看 sample 长啥样
+      2. dry_run=false 真改
+      3. 跑后查 list_assets 验证 dup 没了
+
+    项目层级或全租户层级（project_id=None）·
+    跑完 db.commit 由 FastAPI 自动 · 调用方不用管。
+    """
+    # ACL: admin only · 防止普通用户误清
+    if p.role not in {"tenant_admin", "platform_admin"} and not p.is_platform_admin:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "dedup operation requires admin role (tenant_admin / platform_admin)",
+        )
+
+    # 跨 project 检查 ACL
+    if payload.project_id and not p.can_access_project(payload.project_id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "no access to project")
+
+    # platform_admin 跨 tenant 时 · 如果 project_id 给了 · 反查 tenant
+    effective_tenant_id = p.tenant_id
+    if payload.project_id and p.is_platform_admin:
+        from app.models.project import Project as _P
+        proj = (await db.execute(
+            select(_P).where(_P.id == payload.project_id)
+        )).scalar_one_or_none()
+        if proj:
+            effective_tenant_id = proj.tenant_id
+
+    result = await asset_service.dedup_by_sha256(
+        db,
+        tenant_id=effective_tenant_id,
+        project_id=payload.project_id,
+        dry_run=payload.dry_run,
+    )
+    if not payload.dry_run:
+        await db.commit()
+    return DedupBySha256Out(**result)
 
 
 @router.post("/{asset_id}/uploads/confirm", response_model=AssetOut)
 async def confirm_upload(
     asset_id: uuid.UUID,
+    request: Request,
     p: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> AssetOut:
@@ -87,6 +202,25 @@ async def confirm_upload(
         )
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+
+    # v3 P1.3 D6 audit: asset.uploaded (idempotent confirm 后)
+    await audit_service.audit(
+        db,
+        action=AuditAction.ASSET_UPLOADED,
+        tenant_id=p.tenant_id,
+        project_id=asset.project_id,
+        actor_user_id=p.user_id,
+        actor_kind="user" if p.via == "jwt" else "api_key",
+        target_kind="asset",
+        target_id=asset.id,
+        request=request,
+        metadata={
+            "filename": asset.name,
+            "size_bytes": asset.size_bytes,
+            "status_after": asset.status,
+            "sha256_prefix": asset.sha256[:16] if asset.sha256 else None,
+        },
+    )
     return AssetOut.model_validate(asset)
 
 
@@ -447,6 +581,7 @@ async def update_asset(
 @router.delete("/{asset_id}", status_code=204)
 async def delete_asset(
     asset_id: uuid.UUID,
+    request: Request,
     hard: bool = Query(
         False,
         description="True = 永久删除（含 R2 对象 · 不可恢复 · 仅对回收站资产生效）· "
@@ -470,22 +605,56 @@ async def delete_asset(
         raise HTTPException(status.HTTP_403_FORBIDDEN, "no access")
     _assert_secret_allowed(asset, p)
 
+    asset_name = asset.name
+    asset_pid = asset.project_id
     if hard:
         try:
-            await asset_service.hard_delete_asset(
+            result = await asset_service.hard_delete_asset(
                 db, tenant_id=effective_tid, asset_id=asset_id
             )
         except ValueError as e:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+        # v3 P1.3 D6 audit
+        await audit_service.audit(
+            db,
+            action=AuditAction.ASSET_DELETED,
+            tenant_id=effective_tid,
+            project_id=asset_pid,
+            actor_user_id=p.user_id,
+            actor_kind="user" if p.via == "jwt" else "api_key",
+            target_kind="asset",
+            target_id=asset_id,
+            request=request,
+            metadata={
+                "filename": asset_name,
+                "mode": "hard_delete",
+                "r2_deleted_count": len(result.get("r2_deleted", [])),
+                "r2_failed_count": len(result.get("r2_failed", [])),
+            },
+        )
     else:
         await asset_service.soft_delete_asset(
             db, tenant_id=effective_tid, asset_id=asset_id
+        )
+        # v3 P1.3 D6 audit
+        await audit_service.audit(
+            db,
+            action=AuditAction.ASSET_DELETED,
+            tenant_id=effective_tid,
+            project_id=asset_pid,
+            actor_user_id=p.user_id,
+            actor_kind="user" if p.via == "jwt" else "api_key",
+            target_kind="asset",
+            target_id=asset_id,
+            request=request,
+            metadata={"filename": asset_name, "mode": "soft_delete"},
         )
 
 
 @router.post("/{asset_id}/restore", response_model=AssetOut)
 async def restore_asset(
     asset_id: uuid.UUID,
+    request: Request,
     p: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> AssetOut:
@@ -506,11 +675,26 @@ async def restore_asset(
         )
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+
+    # v3 P1.3 D6 audit
+    await audit_service.audit(
+        db,
+        action=AuditAction.ASSET_RESTORED,
+        tenant_id=effective_tid,
+        project_id=restored.project_id,
+        actor_user_id=p.user_id,
+        actor_kind="user" if p.via == "jwt" else "api_key",
+        target_kind="asset",
+        target_id=restored.id,
+        request=request,
+        metadata={"filename": restored.name},
+    )
     return AssetOut.model_validate(restored)
 
 
 @router.delete("/_trash/empty", status_code=200)
 async def empty_trash(
+    request: Request,
     project_id: uuid.UUID | None = Query(None, description="不传 = 清空整个 tenant 回收站"),
     p: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
@@ -535,6 +719,25 @@ async def empty_trash(
     result = await asset_service.empty_trash(
         db, tenant_id=effective_tenant_id, project_id=project_id
     )
+
+    # v3 P1.3 D6 audit (单条 summary · 含 deleted_count + failed_count)
+    await audit_service.audit(
+        db,
+        action=AuditAction.TRASH_EMPTIED,
+        tenant_id=effective_tenant_id,
+        project_id=project_id,
+        actor_user_id=p.user_id,
+        actor_kind="user" if p.via == "jwt" else "api_key",
+        target_kind="trash",
+        target_id=None,
+        request=request,
+        metadata={
+            "deleted_count": result.get("deleted_count", 0),
+            "failed_count": len(result.get("failed", [])),
+            "scope": "project" if project_id else "tenant",
+        },
+    )
+
     await db.commit()
     return result
 

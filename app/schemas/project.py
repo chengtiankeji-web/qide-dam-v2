@@ -12,6 +12,21 @@ class ProjectCreate(BaseModel):
     default_acl: str = Field(default="project")
 
 
+class ProjectUpdate(BaseModel):
+    """v3 P1.3 (2026-05-13): PATCH /v1/projects/{id}.
+
+    可改字段：name / description / default_acl / is_active。
+    **不能改** slug / storage_prefix —— 它们烤进 R2 storage_key 路径 ·
+    改了会让所有现有 asset 的 download URL 失效 · 强拒（schema 没暴露）。
+
+    改名（display name）通过本 schema 完成 · 不影响 R2 路径。
+    """
+    name: str | None = Field(None, min_length=1, max_length=128)
+    description: str | None = None
+    default_acl: str | None = None
+    is_active: bool | None = None
+
+
 class ProjectOut(BaseModel):
     id: uuid.UUID
     tenant_id: uuid.UUID

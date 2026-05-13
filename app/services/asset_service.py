@@ -5,8 +5,10 @@ import mimetypes
 import uuid
 from datetime import UTC
 from pathlib import PurePosixPath
+from typing import Literal
 
 from sqlalchemy import and_, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -15,6 +17,9 @@ from app.models.project import Project
 from app.models.tenant import Tenant
 from app.schemas.asset import PresignedUploadIn
 from app.services import storage
+
+# v3 P1.3 (2026-05-13): dedup strategy literal
+DedupStrategy = Literal["reject", "link", "replicate"]
 
 # kind classification by mime prefix
 _KIND_BY_MIME_PREFIX: dict[str, str] = {
@@ -65,7 +70,11 @@ async def _find_duplicate_by_sha256(
     project_id: uuid.UUID,
     sha256: str | None,
 ) -> Asset | None:
-    """phase 1.1 dedup helper · sha256 空时跳过（兼容老 client / watcher 必传）"""
+    """phase 1.1 dedup helper · sha256 空时跳过。
+
+    v3 P1.3 (2026-05-13): 调用方应通过 schema 校验保证 sha256 非空 ·
+    但保留 None 跳过逻辑作为防御性编程（schema 校验绕过场景）。
+    """
     if not sha256:
         return None
     return (
@@ -85,24 +94,51 @@ async def register_presigned_upload(
     tenant_id: uuid.UUID,
     payload: PresignedUploadIn,
     skip_dedup: bool = False,
-) -> tuple[Asset, str, dict]:
+    dedup_strategy: DedupStrategy = "link",
+) -> tuple[Asset, str | None, dict, bool]:
     """Create the Asset row in `uploading` state and return a presigned PUT URL.
 
     Caller (frontend / MCP client) PUTs the file directly to S3, then calls
     `confirm_upload` to flip status to ready and trigger Celery processing.
 
-    v3 phase 1.1: 检查同 project sha256 重复 · skip_dedup=true 跳过（用户要副本）
+    v3 P1.3 (2026-05-13): 三层防 dup
+      1. schema 层：sha256 必填 + 64 hex（PresignedUploadIn pattern）
+      2. app 层：先查 _find_duplicate_by_sha256 · 命中走 strategy 处理
+      3. DB 层：partial unique index uq_assets_project_sha_alive (alembic 010)
+         · 并发 race 时 IntegrityError → 回退查 dup 再处理
+
+    dedup_strategy:
+      - "link" (默认) · 命中 dup 时返回既有 asset · 跳 R2 PUT · 跳 confirm
+                       · 给 watcher 用："这个 sha 已存在 我什么都不用做"
+      - "reject" (legacy) · 命中 dup 时抛 DuplicateAssetError → endpoint 转 409
+                            · 给 admin SPA Upload 用："请用户确认是否要副本"
+      - "replicate" · skip dedup 检查 + 用户显式 ?skip_dedup=true · 落副本
+
+    skip_dedup=True (legacy 参数) 自动设 strategy="replicate"。
+
+    返回：(asset, upload_url, headers, deduplicated_bool)
+      - deduplicated=True：asset 是既有的 · upload_url=None · 调用方跳上传
+      - deduplicated=False：asset 新建在 uploading 状态 · upload_url 是 presigned R2 URL
     """
+    # legacy compat
+    if skip_dedup:
+        dedup_strategy = "replicate"
+
     project = await _get_project(db, tenant_id=tenant_id, project_id=payload.project_id)
     tenant = await _get_tenant(db, tenant_id=tenant_id)
 
-    if not skip_dedup:
+    # ── App 层 dedup 检查 ────────────────────────────────────────────
+    if dedup_strategy != "replicate":
         dup = await _find_duplicate_by_sha256(
             db, project_id=project.id, sha256=payload.sha256
         )
         if dup:
+            if dedup_strategy == "link":
+                return dup, None, {}, True
+            # strategy == "reject"
             raise DuplicateAssetError(dup)
 
+    # ── 真上传路径 ───────────────────────────────────────────────────
     asset_id = uuid.uuid4()
     extension = safe_extension(payload.filename, payload.mime_type)
     kind = classify_kind(payload.mime_type, extension)
@@ -118,7 +154,7 @@ async def register_presigned_upload(
         tenant_id=tenant_id,
         project_id=project.id,
         name=payload.filename,
-        sha256=payload.sha256 or "",
+        sha256=payload.sha256,  # P1.3: schema 已保证非空 · 不再 `or ""`
         kind=kind,
         mime_type=payload.mime_type,
         extension=extension,
@@ -132,12 +168,30 @@ async def register_presigned_upload(
         manual_tags=list(payload.manual_tags),
     )
     db.add(asset)
-    await db.flush()
+
+    # ── DB 层兜底：partial unique index 撞了说明 race · 转回 link 行为 ─
+    try:
+        await db.flush()
+    except IntegrityError as exc:
+        await db.rollback()
+        # 检查约束名（alembic 010 命名是 uq_assets_project_sha_alive）
+        err_str = str(exc.orig) if exc.orig else str(exc)
+        if "uq_assets_project_sha_alive" in err_str:
+            # 并发场景：另一个调用刚 insert · 我们查既有就好
+            dup = await _find_duplicate_by_sha256(
+                db, project_id=project.id, sha256=payload.sha256
+            )
+            if dup:
+                if dedup_strategy == "link":
+                    return dup, None, {}, True
+                raise DuplicateAssetError(dup) from exc
+        # 其他 IntegrityError 透传 · 别吞了
+        raise
 
     upload_url, headers = storage.presign_put(
         storage_key=storage_key, content_type=payload.mime_type, expires_in=900
     )
-    return asset, upload_url, headers
+    return asset, upload_url, headers, False
 
 
 async def confirm_upload(
@@ -146,8 +200,39 @@ async def confirm_upload(
     tenant_id: uuid.UUID,
     asset_id: uuid.UUID,
 ) -> Asset:
-    """Verify the object exists in S3, flip status -> processing, enqueue pipeline."""
+    """Verify the object exists in S3, flip status -> processing, enqueue pipeline.
+
+    v3 P1.3 (2026-05-13) P0 D3 修复：idempotent。
+      之前 bug：重复 confirm 会双 bump usage + 双发 webhook + 双跑 Celery pipeline。
+      现在：status 已经是 processing / ready 时早返回 · 不重复副作用。
+      status=failed 时允许 re-arm（继续走流程 · 写一条 audit）·
+      status=archived 时拒绝（不能复活已 soft-delete 的 asset）。
+    """
     asset = await _get_asset_for_tenant(db, tenant_id=tenant_id, asset_id=asset_id)
+
+    # P0 D3: 幂等早返回
+    if asset.status in ("processing", "ready"):
+        from app.core.logging import get_logger
+        get_logger(__name__).info(
+            "asset.confirm.idempotent_skip",
+            asset_id=str(asset.id),
+            status=asset.status,
+        )
+        return asset
+    if asset.status == "archived":
+        raise ValueError(
+            f"asset {asset_id} is archived (deleted) · cannot confirm · "
+            "restore from trash first"
+        )
+    if asset.status == "failed":
+        # Re-arm path：让上传重试 · 写日志便于后续 audit
+        from app.core.logging import get_logger
+        get_logger(__name__).info(
+            "asset.confirm.rearm_from_failed",
+            asset_id=str(asset.id),
+        )
+
+    # 正常 uploading → processing 路径
     head = storage.head_object(asset.storage_key)
     if head is None:
         raise ValueError("Object not found in storage — did the upload finish?")
@@ -341,6 +426,29 @@ async def hard_delete_asset(
         except Exception as exc:  # noqa: BLE001
             failed_keys.append({"key": k, "error": str(exc)})
 
+    # v3 P1.3 D7 修复：R2 删失败的 key 录入 r2_orphans 表 ·
+    # 之前 bug：r2_failed 返回但 DB 行已删 → R2 对象成永久孤儿（不被任何表引用 + 计费 forever）
+    # 现在：每个失败的 storage_key 入 r2_orphans 表 + retry_r2_orphans 每天 backoff 重试
+    if failed_keys:
+        try:
+            from app.workers.tasks_cleanup import record_r2_orphan
+            for fk in failed_keys:
+                await record_r2_orphan(
+                    db,
+                    tenant_id=asset.tenant_id,
+                    project_id=asset.project_id,
+                    origin_asset_id=asset.id,
+                    storage_key=fk["key"],
+                    storage_bucket=asset.storage_bucket or "",
+                    error=fk["error"],
+                )
+        except Exception as exc:  # noqa: BLE001
+            from app.core.logging import get_logger
+            get_logger(__name__).warning(
+                "record_r2_orphan failed (R2 obj still orphan but not tracked)",
+                error=str(exc),
+            )
+
     # DB 行删除 · cascade 配置由模型 / FK 决定（见 alembic 001-004）
     await db.delete(asset)
     await db.flush()
@@ -378,6 +486,106 @@ async def empty_trash(
         except Exception as exc:  # noqa: BLE001
             failed.append({"asset_id": str(a.id), "error": str(exc)})
     return {"deleted_count": count, "failed": failed}
+
+
+async def dedup_by_sha256(
+    db: AsyncSession,
+    *,
+    tenant_id: uuid.UUID,
+    project_id: uuid.UUID | None = None,
+    dry_run: bool = True,
+) -> dict:
+    """v3 P1.3 (2026-05-13) · 一次性清同 project 同 sha256 重复 asset。
+
+    - 找出每个 (project_id, sha256) 多于 1 行的组 · sha256<>'' · 未删
+    - 保留 created_at 最新的一行 · 其他 soft-delete（status='archived'）
+    - dry_run=True 只报告不动数据 · dry_run=False 真改
+
+    每个 archive 操作写一条 audit event（actor=system / kind=migration_dedup）
+    跑完返回报告 · 调用方可决定是否再跑一次。
+
+    幂等：跑 N 次结果一致（第二次找到 0 dup group）。
+    """
+    from app.services import audit_service
+    from app.services.audit_service import AuditAction
+
+    # 找 dup groups · 限 tenant · 可选 project filter
+    where_clauses = [
+        Asset.tenant_id == tenant_id,
+        Asset.deleted_at.is_(None),
+        Asset.sha256 != "",
+    ]
+    if project_id:
+        where_clauses.append(Asset.project_id == project_id)
+
+    # 拉所有 active+sha256 行 · 按 (project_id, sha256) 分组手工 dedup
+    rows = (
+        await db.execute(
+            select(Asset).where(*where_clauses)
+            .order_by(Asset.project_id, Asset.sha256, Asset.created_at.desc())
+        )
+    ).scalars().all()
+
+    groups: dict[tuple[uuid.UUID, str], list[Asset]] = {}
+    for a in rows:
+        key = (a.project_id, a.sha256)
+        groups.setdefault(key, []).append(a)
+
+    dup_groups = {k: v for k, v in groups.items() if len(v) > 1}
+    archived_count = 0
+    sample: list[dict] = []
+
+    for (proj_id, sha), assets in dup_groups.items():
+        # rows 已按 created_at DESC 排 · 第一个保留 · 其他 archive
+        kept = assets[0]
+        to_archive = assets[1:]
+        if not dry_run:
+            from datetime import datetime as _dt
+            now = _dt.now(UTC)
+            for a in to_archive:
+                a.deleted_at = now
+                a.status = "archived"
+                # 写 audit · target_id=a.id · kept_id 进 metadata
+                # audit_service.audit() 接受字段见 audit_service.py:audit()
+                # · actor_label / severity 不是顶层参数 · 放 metadata 里
+                await audit_service.audit(
+                    db,
+                    action=AuditAction.ASSET_DELETED,
+                    tenant_id=tenant_id,
+                    project_id=proj_id,
+                    actor_user_id=None,
+                    actor_kind="system",
+                    target_kind="asset",
+                    target_id=a.id,
+                    metadata={
+                        "reason": "duplicate_sha256",
+                        "kept_id": str(kept.id),
+                        "sha256": sha,
+                        "dry_run": False,
+                        "actor_label": "dedup_by_sha256_endpoint",
+                    },
+                )
+        archived_count += len(to_archive)
+        if len(sample) < 20:
+            sample.append({
+                "project_id": str(proj_id),
+                "sha256": sha[:16] + "...",  # 截断不暴露完整 sha
+                "kept_id": str(kept.id),
+                "kept_name": kept.name,
+                "archived_ids": [str(a.id) for a in to_archive],
+                "archived_count": len(to_archive),
+            })
+
+    if not dry_run:
+        await db.flush()
+
+    return {
+        "project_id": str(project_id) if project_id else None,
+        "dry_run": dry_run,
+        "dup_groups": len(dup_groups),
+        "archived_count": archived_count,
+        "sample": sample,
+    }
 
 
 async def purge_old_trashed(
