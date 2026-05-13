@@ -6,6 +6,7 @@ from app.api.v1 import (
     audit,
     auth,
     collections,
+    consolidate,  # v3 P1.3 #5 (2026-05-13 晚)
     folders,
     health,
     intake,
@@ -53,3 +54,6 @@ api_router.include_router(social.router, prefix="/social", tags=["social"])
 
 # v7 CRM (leads + contacts + accounts + deals + quotes + emails + activities + dashboard)
 api_router.include_router(crm_router, prefix="/crm")
+
+# v3 P1.3 #5 (2026-05-13 晚): handover/plans/sources 消化到 memory
+api_router.include_router(consolidate.router, prefix="/consolidate", tags=["consolidate"])

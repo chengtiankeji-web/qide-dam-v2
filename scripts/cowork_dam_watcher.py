@@ -187,6 +187,7 @@ include_extensions = [
 
 # 黑名单：路径含这些段直接跳过（任意层级）
 # v2.0 新增：confidential / secrets / private / .ssh / 任何 *-keys 子目录
+# v2.1 (2026-05-13 晚) #4：code/ 排除 · 代码 source-of-truth 是 GitHub · DAM 不存
 exclude_path_segments = [
     ".git", ".svn", ".hg",
     "node_modules", "__pycache__", ".pytest_cache", ".mypy_cache",
@@ -199,6 +200,8 @@ exclude_path_segments = [
     "confidential", "secrets", "private", ".ssh", ".aws", ".docker",
     # v2.0 杂项排除
     "_temp_images_for_review",      # 临时 review 图（Sam 拍板默认不入 DAM）
+    # v2.1 #4 (2026-05-13 晚): code 不进 DAM · 代码源在 GitHub
+    "code",
 ]
 
 # 黑名单：文件名 glob（任意层级）
