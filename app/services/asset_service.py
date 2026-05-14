@@ -520,6 +520,111 @@ async def empty_trash(
     return {"deleted_count": count, "failed": failed}
 
 
+async def dedup_by_name(
+    db: AsyncSession,
+    *,
+    tenant_id: uuid.UUID,
+    project_id: uuid.UUID | None = None,
+    folder_scoped: bool = True,
+    dry_run: bool = True,
+) -> dict:
+    """v3 P1.3 #2 (2026-05-13 晚) · 按 (project_id, folder_id, name) 去重。
+
+    用例：Memory 文件 Sam 多次编辑同名 CLAUDE.md / xiangyue-shunde.md ·
+    每次内容不同（sha 不同）→ alembic 010 不去重 · 累积版本。
+    本端点按 name 分组 · 保留 updated_at 最新一行 · 其他 soft-delete。
+
+    folder_scoped:
+      True (默认) = 同 folder 下重名才算 dup（更严）
+      False = 同 project 下重名就算 dup（极宽 · 会误删跨 folder 同名文件）
+
+    幂等 · 跑 N 次结果一致 · audit 留痕。
+    """
+    from app.services import audit_service
+    from app.services.audit_service import AuditAction
+
+    where_clauses = [
+        Asset.tenant_id == tenant_id,
+        Asset.deleted_at.is_(None),
+    ]
+    if project_id:
+        where_clauses.append(Asset.project_id == project_id)
+
+    # 按 updated_at desc 排序 · 同组第一个为 "newest" 保留
+    rows = (
+        await db.execute(
+            select(Asset).where(*where_clauses)
+            .order_by(Asset.project_id, Asset.folder_id, Asset.name, Asset.updated_at.desc())
+        )
+    ).scalars().all()
+
+    # 分组键
+    def _key(a: Asset):
+        return (a.project_id, a.folder_id if folder_scoped else None, a.name)
+
+    groups: dict = {}
+    for a in rows:
+        groups.setdefault(_key(a), []).append(a)
+
+    dup_groups = {k: v for k, v in groups.items() if len(v) > 1}
+    archived_count = 0
+    sample: list[dict] = []
+
+    for (proj_id, folder_id, name), assets in dup_groups.items():
+        # rows 已按 updated_at desc 排 · 第一个保留 · 其他 archive
+        kept = assets[0]
+        to_archive = assets[1:]
+        if not dry_run:
+            from datetime import datetime as _dt
+            now = _dt.now(UTC)
+            for a in to_archive:
+                a.deleted_at = now
+                a.status = "archived"
+                await audit_service.audit(
+                    db,
+                    action=AuditAction.ASSET_DELETED,
+                    tenant_id=tenant_id,
+                    project_id=proj_id,
+                    actor_user_id=None,
+                    actor_kind="system",
+                    target_kind="asset",
+                    target_id=a.id,
+                    metadata={
+                        "reason": "duplicate_name",
+                        "kept_id": str(kept.id),
+                        "kept_updated_at": kept.updated_at.isoformat() if kept.updated_at else None,
+                        "name": name,
+                        "folder_id": str(folder_id) if folder_id else None,
+                        "folder_scoped": folder_scoped,
+                        "actor_label": "dedup_by_name_endpoint",
+                    },
+                )
+        archived_count += len(to_archive)
+        if len(sample) < 20:
+            sample.append({
+                "project_id": str(proj_id),
+                "folder_id": str(folder_id) if folder_id else None,
+                "name": name,
+                "kept_id": str(kept.id),
+                "kept_size": kept.size_bytes,
+                "kept_updated_at": kept.updated_at.isoformat() if kept.updated_at else None,
+                "archived_ids": [str(a.id) for a in to_archive],
+                "archived_count": len(to_archive),
+            })
+
+    if not dry_run:
+        await db.flush()
+
+    return {
+        "project_id": str(project_id) if project_id else None,
+        "folder_scoped": folder_scoped,
+        "dry_run": dry_run,
+        "dup_groups": len(dup_groups),
+        "archived_count": archived_count,
+        "sample": sample,
+    }
+
+
 async def dedup_by_sha256(
     db: AsyncSession,
     *,

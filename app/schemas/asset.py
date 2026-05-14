@@ -157,3 +157,29 @@ class DedupBySha256Out(BaseModel):
     dup_groups: int  # 多少组 (project_id, sha256) 有 >1 行
     archived_count: int  # 实际 / 拟 archive 的行数
     sample: list[dict] = Field(default_factory=list)  # 前 20 组样本：{sha256, kept_id, archived_ids[]}
+
+
+# ─── v3 P1.3 #2 (2026-05-13 晚) · dedup by name ────────────────────
+
+class DedupByNameIn(BaseModel):
+    """POST /v1/assets/_dedup_by_name · 同 (project_id, folder_id, name) 保留最新。
+
+    用例：CLAUDE.md / xiangyue-shunde.md 等 memory 文件多次编辑 · 内容变 sha 不同 ·
+    sha-dedup 不去重 · 累积旧版本。本端点按 name 去重 · 保留 updated_at 最新。
+    """
+    project_id: uuid.UUID | None = None
+    folder_scoped: bool = Field(
+        default=True,
+        description="True (默认) = 同 folder 下重名才算 dup（严格）· "
+                    "False = 同 project 下重名就算 dup（宽 · 会误删跨 folder 同名）",
+    )
+    dry_run: bool = Field(default=True)
+
+
+class DedupByNameOut(BaseModel):
+    project_id: uuid.UUID | None
+    folder_scoped: bool
+    dry_run: bool
+    dup_groups: int
+    archived_count: int
+    sample: list[dict] = Field(default_factory=list)

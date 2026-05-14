@@ -88,10 +88,15 @@ CONSOLIDATE_MODEL = "qwen-plus"
 
 class ConsolidatePreviewIn(BaseModel):
     scope: Literal["handover", "plans", "sources"]
-    project_id: uuid.UUID
+    # v3 P1.3 (2026-05-13 晚二修): project_id 改可选 ·
+    # None = 跨整个 tenant 找匹配 scope 的资产（Sam 反馈 CMH 下点 handover 0 命中 ·
+    # 因为 handover 都在 qidematrix-sam · 跨 tenant 查最合理）
+    project_id: uuid.UUID | None = None
     # 可选：限定 specific asset_ids（不传 = 自动按 scope 命中规则全收）
     asset_ids: list[uuid.UUID] | None = None
     target_memory_name: str | None = None
+    # 输出 memory 文件落到哪个 project · None = 跟 project_id 一致 · 都 None 时落 qidematrix-sam（默认 memory 项目）
+    output_project_id: uuid.UUID | None = None
 
 
 class ConsolidatePreviewOut(BaseModel):
@@ -121,12 +126,15 @@ async def _list_scope_assets(
     db: AsyncSession,
     *,
     tenant_id: uuid.UUID,
-    project_id: uuid.UUID,
+    project_id: uuid.UUID | None,
     scope: str,
 ) -> list[Asset]:
-    """按 scope tag / name 规则筛选出该项目下匹配的资产。
+    """按 scope tag / name 规则筛选出匹配的资产。
 
-    简化：先一次性 list 项目下所有 status=ready · markdown/text/document kind · 然后 Python 端 regex 过滤。
+    v3 P1.3 (2026-05-13 晚二修): project_id=None 时跨整个 tenant 查 ·
+    项目级别 consolidate 才传 project_id · 跨 project 场景（handover/plans/sources）None 最合理。
+
+    简化：先一次性 list 所有 status=ready · markdown/text/document kind · 然后 Python 端 regex 过滤。
     """
     import re
 
@@ -134,7 +142,6 @@ async def _list_scope_assets(
         select(Asset)
         .where(
             Asset.tenant_id == tenant_id,
-            Asset.project_id == project_id,
             Asset.deleted_at.is_(None),
             Asset.status == "ready",
             Asset.kind.in_(("document", "other")),
@@ -142,6 +149,8 @@ async def _list_scope_assets(
         .order_by(Asset.updated_at.desc())
         .limit(500)
     )
+    if project_id:
+        stmt = stmt.where(Asset.project_id == project_id)
     rows = (await db.execute(stmt)).scalars().all()
 
     pat = SCOPE_PATTERNS.get(scope, {})
@@ -179,8 +188,11 @@ async def consolidate_preview(
     p: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> ConsolidatePreviewOut:
-    """v3 P1.3 #5 · 生成 memory.md 候选 · 用户在 admin SPA 看到后改/拒/应用"""
-    if not p.can_access_project(payload.project_id):
+    """v3 P1.3 #5 · 生成 memory.md 候选 · 用户在 admin SPA 看到后改/拒/应用
+
+    v3 P1.3 二修 (2026-05-13 晚): project_id 改可选 · None = 跨 tenant
+    """
+    if payload.project_id and not p.can_access_project(payload.project_id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "no access")
 
     pat = SCOPE_PATTERNS.get(payload.scope)
@@ -189,12 +201,14 @@ async def consolidate_preview(
 
     # 命中文件
     if payload.asset_ids:
-        stmt = select(Asset).where(
+        clauses = [
             Asset.id.in_(payload.asset_ids),
             Asset.tenant_id == p.tenant_id,
-            Asset.project_id == payload.project_id,
             Asset.deleted_at.is_(None),
-        )
+        ]
+        if payload.project_id:
+            clauses.append(Asset.project_id == payload.project_id)
+        stmt = select(Asset).where(*clauses)
         assets = list((await db.execute(stmt)).scalars().all())
     else:
         assets = await _list_scope_assets(

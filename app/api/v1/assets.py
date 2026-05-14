@@ -19,6 +19,8 @@ from app.schemas.asset import (
     AssetUpdate,
     BulkMoveIn,
     BulkMoveOut,
+    DedupByNameIn,
+    DedupByNameOut,
     DedupBySha256In,
     DedupBySha256Out,
     PresignedUploadIn,
@@ -187,6 +189,46 @@ async def dedup_by_sha256(
     if not payload.dry_run:
         await db.commit()
     return DedupBySha256Out(**result)
+
+
+@router.post("/_dedup_by_name", response_model=DedupByNameOut)
+async def dedup_by_name(
+    payload: DedupByNameIn,
+    p: Principal = Depends(get_current_principal),
+    db: AsyncSession = Depends(get_db),
+) -> DedupByNameOut:
+    """v3 P1.3 #2 (2026-05-13 晚) · 同 (project, folder, name) 保留 updated_at 最新。
+
+    Memory 文件 Sam 多次编辑同名 CLAUDE.md / xiangyue-shunde.md 累积旧版本场景用。
+    需要 tenant_admin / platform_admin。
+    """
+    if p.role not in {"tenant_admin", "platform_admin"} and not p.is_platform_admin:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "dedup operation requires admin role",
+        )
+    if payload.project_id and not p.can_access_project(payload.project_id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "no access to project")
+
+    effective_tenant_id = p.tenant_id
+    if payload.project_id and p.is_platform_admin:
+        from app.models.project import Project as _P
+        proj = (await db.execute(
+            select(_P).where(_P.id == payload.project_id)
+        )).scalar_one_or_none()
+        if proj:
+            effective_tenant_id = proj.tenant_id
+
+    result = await asset_service.dedup_by_name(
+        db,
+        tenant_id=effective_tenant_id,
+        project_id=payload.project_id,
+        folder_scoped=payload.folder_scoped,
+        dry_run=payload.dry_run,
+    )
+    if not payload.dry_run:
+        await db.commit()
+    return DedupByNameOut(**result)
 
 
 @router.post("/{asset_id}/uploads/confirm", response_model=AssetOut)
