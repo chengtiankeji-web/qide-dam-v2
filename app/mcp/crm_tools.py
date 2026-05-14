@@ -277,12 +277,15 @@ async def transition_lead(
         principal = await _api_key_to_principal(api_key, db)
         from app.services.crm import leads_service
         try:
+            # v3 P1.3 phase 5+ (2026-05-14) SonarQube 真 bug 修复：
+            # transition_status signature 是 (db, *, principal, lead_id, new_status, note, lost_reason, ...)
+            # 之前传 lead=lead + reason=reason 都不匹配 · 任何调用 100% TypeError
             lead = await leads_service.transition_status(
                 db,
                 principal=principal,
-                lead=lead,
+                lead_id=lead.id,
                 new_status=new_status,
-                reason=reason,
+                note=reason,
             )
         except ValueError as e:
             raise ValueError(str(e)) from e

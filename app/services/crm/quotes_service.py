@@ -392,8 +392,15 @@ async def generate_pdf(
     buf.close()
 
     # 写到 R2
+    # v3 P1.3 phase 5+ (2026-05-14) SonarQube 真 bug 修复：
+    # storage.put_object 是 sync (def · 非 async) + 所有参数 keyword-only
+    # 之前 await + positional 任何调用 100% TypeError + RuntimeWarning
     storage_key = f"quotes/{quote.tenant_id}/{quote.id}.pdf"
-    await storage.put_object(storage_key, pdf_bytes, content_type="application/pdf")
+    storage.put_object(
+        storage_key=storage_key,
+        body=pdf_bytes,
+        content_type="application/pdf",
+    )
 
     quote.pdf_storage_key = storage_key
     quote.pdf_generated_at = datetime.now(timezone.utc)
