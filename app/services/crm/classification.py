@@ -457,11 +457,8 @@ async def _llm_judge_inquiry(
     inquiry_text: str,
     rule_result: ClassificationResult,
 ) -> dict | None:
-    """调 DashScope qwen-plus 复核·返回 {classification, confidence, reasoning}"""
-    import json
-
-    import httpx
-
+    """调 DashScope LLM 复核·走 ai_service.complete_json_for lead_classify 路由
+    返回 {classification, confidence, reasoning}"""
     from app.core.config import settings
     from app.services import ai_service
 
@@ -496,34 +493,18 @@ D 类：spam / 无意义 / 0 要素
     if not settings.DASHSCOPE_API_KEY:
         return None
 
+    # v3 P1.3 phase 5+ (2026-05-14): 走 ai_service.complete_json_for use-case 路由
+    # · 之前裸 httpx + 硬编码 model='qwen-plus' · 现在 lead_classify use case 链
+    # · sync helper 包 asyncio.to_thread 不阻塞 event loop（SonarQube 之前的 async-sync 警告也顺手清）
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(
-                ai_service.DASHSCOPE_TEXT_GEN_URL,
-                json={
-                    "model": "qwen-plus",
-                    "input": {"messages": [{"role": "user", "content": prompt}]},
-                    "parameters": {"result_format": "message",
-                                  "max_tokens": 200, "temperature": 0.1},
-                },
-                headers={"Authorization": f"Bearer {settings.DASHSCOPE_API_KEY}"},
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            # 解析返回
-            content = (
-                data.get("output", {}).get("choices", [{}])[0]
-                    .get("message", {}).get("content", "")
-            )
-            # 提取 JSON
-            content = content.strip()
-            if content.startswith("```json"):
-                content = content[7:]
-            elif content.startswith("```"):
-                content = content[3:]
-            if content.endswith("```"):
-                content = content[:-3]
-            content = content.strip()
-            return json.loads(content)
+        import asyncio
+        parsed, _usage = await asyncio.to_thread(
+            ai_service.complete_json_for,
+            "lead_classify",
+            prompt,
+            max_tokens=200,
+            temperature=0.1,
+        )
+        return parsed
     except Exception:
         return None

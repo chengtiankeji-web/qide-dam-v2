@@ -336,7 +336,11 @@ def _llm_classify_batch(
                 for it in batch
             ],
         )
-        parsed, usage = ai_service.complete_json(prompt, max_tokens=2048, temperature=0.1)
+        # v3 P1.3 phase 5+ (2026-05-14): 改路由版 · intake_extract use_case ·
+        # 从 qwen3.6-flash 默认换 qwen-plus first + fallback chain · 提升结构化抽取准确性
+        parsed, usage = ai_service.complete_json_for(
+            "intake_extract", prompt, max_tokens=2048, temperature=0.1
+        )
         cost_total += usage["cost_cny"]
         in_tok += usage["input_tokens"]
         out_tok += usage["output_tokens"]

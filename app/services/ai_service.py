@@ -76,6 +76,27 @@ USE_CASE_MAX_TOKENS: dict[str, int] = {
 }
 
 
+# ─── Model pricing · 按当前实际跑的模型算 cost（v3 P1.3 phase 5+ · 2026-05-14） ──
+# ¥ per 1K tokens · 来源 dashscope.aliyun.com · Sam 拍板按此估算 dashboard 成本
+# 准确数字定期 review · 当前是 2026-05 估值
+MODEL_PRICING: dict[str, dict[str, float]] = {
+    "qwen3.6-flash":  {"input": 0.0008, "output": 0.002},   # 小而快 · 短文/批量首选
+    "qwen-plus":      {"input": 0.004,  "output": 0.012},   # 中端 · intake/classify 兼顾
+    "qwen-long":      {"input": 0.0008, "output": 0.002},   # 长 context 1M · 跟 flash 接近便宜
+    "qwen-max":       {"input": 0.02,   "output": 0.06},    # 最强推理 · 限 deep_reasoning
+    "qwen3-vl-plus":  {"input": 0.008,  "output": 0.024},   # 多模态
+}
+
+
+def _calc_cost(model_name: str, in_tokens: int, out_tokens: int) -> float:
+    """按 MODEL_PRICING 算 ¥ · 未知模型用 flash 价兜底"""
+    pricing = MODEL_PRICING.get(model_name, MODEL_PRICING["qwen3.6-flash"])
+    return round(
+        in_tokens / 1000 * pricing["input"] + out_tokens / 1000 * pricing["output"],
+        6,
+    )
+
+
 def _stub_embedding(seed: str) -> list[float]:
     """Deterministic fake 768-dim vector for dev / test mode."""
     h = hashlib.sha256(seed.encode()).digest()
@@ -415,6 +436,15 @@ def tag_image(image_bytes: bytes) -> dict[str, Any]:
 # ════════════════════════════════════════════════════════════
 # JSON-mode completion · Smart Intake v4 用
 # ════════════════════════════════════════════════════════════
+#
+# v3 P1.3 phase 5+ (2026-05-14) · 路由版 complete_json_for · 推荐所有 JSON-mode 调用
+# 改用它而非裸 complete_json（裸版本仅保 backward compat · 后续 deprecate）。
+#
+# 用法：
+#   parsed, usage = ai_service.complete_json_for(
+#       "intake_extract", prompt, max_tokens=2048, temperature=0.1
+#   )
+# 自动按 USE_CASE_MODELS 选模型 + fallback · cost 按实际跑的模型算（MODEL_PRICING 表）
 
 def complete_json(
     prompt: str,
@@ -534,3 +564,124 @@ def complete_json(
     except _json.JSONDecodeError as e:
         logger.warning("ai.complete_json.parse_failed", error=str(e), raw=raw[:200])
         return None, usage
+
+
+def complete_json_for(
+    use_case: str,
+    prompt: str,
+    *,
+    system: str | None = None,
+    max_tokens: int | None = None,
+    temperature: float = 0.2,
+) -> tuple[dict | list | None, dict]:
+    """v3 P1.3 phase 5+ (2026-05-14) · use-case 路由版 JSON-mode 完成。
+
+    跟 complete_json 一样返 (parsed, usage)，但模型按 USE_CASE_MODELS 自动选 + fallback ·
+    cost 按实际跑的模型从 MODEL_PRICING 算 · 全部模型失败返 (None, usage)。
+
+    用法：
+        parsed, usage = ai_service.complete_json_for(
+            "intake_extract", prompt, max_tokens=2048, temperature=0.1
+        )
+
+    use_case 列表见 USE_CASE_MODELS（lead_classify / intake_extract / deep_reasoning 等）
+    """
+    import json as _json
+
+    fallback_chain = USE_CASE_MODELS.get(use_case, USE_CASE_MODELS["generic"])
+    effective_max_tokens = max_tokens or USE_CASE_MAX_TOKENS.get(use_case, 1500)
+
+    usage_acc = {"input_tokens": 0, "output_tokens": 0, "cost_cny": 0.0}
+
+    if not has_provider() or not settings.DASHSCOPE_API_KEY:
+        # OpenAI fallback 暂不在路由链里 · 退到 stub
+        # 调用方拿 None 后自己 fallback 到 rule-only
+        return None, usage_acc
+
+    last_error: Exception | None = None
+    for model_name in fallback_chain:
+        try:
+            messages = []
+            if system:
+                messages.append({"role": "system", "content": system})
+            messages.append({"role": "user", "content": prompt})
+
+            # qwen-long context 长 · timeout 拉到 300s · 其他 60s 够
+            timeout = 300.0 if model_name == "qwen-long" else 60.0
+
+            resp = httpx.post(
+                DASHSCOPE_TEXT_GEN_URL,
+                headers={
+                    "Authorization": f"Bearer {settings.DASHSCOPE_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": model_name,
+                    "input": {"messages": messages},
+                    "parameters": {
+                        "result_format": "message",
+                        "max_tokens": effective_max_tokens,
+                        "temperature": temperature,
+                        "response_format": {"type": "json_object"},
+                    },
+                },
+                timeout=timeout,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            raw = (
+                data.get("output", {})
+                .get("choices", [{}])[0]
+                .get("message", {})
+                .get("content", "")
+            )
+
+            # cost 累加（按实际模型）
+            tok = data.get("usage", {})
+            in_tok = int(tok.get("input_tokens", 0))
+            out_tok = int(tok.get("output_tokens", 0))
+            usage_acc["input_tokens"] += in_tok
+            usage_acc["output_tokens"] += out_tok
+            usage_acc["cost_cny"] = round(
+                usage_acc["cost_cny"] + _calc_cost(model_name, in_tok, out_tok),
+                6,
+            )
+
+            # 解 JSON · 兼容 ```json wrap
+            cleaned = raw.strip()
+            if cleaned.startswith("```json"):
+                cleaned = cleaned[7:]
+            elif cleaned.startswith("```"):
+                cleaned = cleaned[3:]
+            if cleaned.endswith("```"):
+                cleaned = cleaned[:-3]
+            cleaned = cleaned.strip()
+
+            parsed = _json.loads(cleaned)
+            logger.info(
+                "ai.complete_json_for.ok",
+                use_case=use_case, model=model_name,
+                in_tok=in_tok, out_tok=out_tok, cost=usage_acc["cost_cny"],
+            )
+            return parsed, usage_acc
+        except _json.JSONDecodeError as e:
+            logger.warning(
+                "ai.complete_json_for.parse_failed",
+                use_case=use_case, model=model_name, error=str(e)[:120],
+            )
+            last_error = e
+            continue
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "ai.complete_json_for.exception",
+                use_case=use_case, model=model_name, error=str(e)[:200],
+            )
+            last_error = e
+            continue
+
+    logger.error(
+        "ai.complete_json_for.all_failed",
+        use_case=use_case, chain=fallback_chain,
+        last_error=str(last_error) if last_error else "?",
+    )
+    return None, usage_acc

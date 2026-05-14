@@ -13,10 +13,7 @@
 """
 from __future__ import annotations
 
-import json
 import uuid
-
-import httpx
 
 from app.core.config import settings
 from app.core.logging import get_logger
@@ -106,32 +103,19 @@ async def _call_dashscope_enrich(
 }}
 """
 
+    # v3 P1.3 phase 5+ (2026-05-14): 走 use-case 路由 · intake_extract 链
+    # 之前裸 httpx · 现在 ai_service.complete_json_for 统一管理 · 自动 fallback + cost 追踪
+    # async + asyncio.to_thread 防 sync httpx 阻塞 event loop（SonarQube async-sync 警告同步清）
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(
-                ai_service.DASHSCOPE_TEXT_GEN_URL,
-                json={
-                    "model": "qwen-plus",
-                    "input": {"messages": [{"role": "user", "content": prompt}]},
-                    "parameters": {
-                        "result_format": "message",
-                        "max_tokens": 1500,
-                        "temperature": 0.3,
-                    },
-                },
-                headers={"Authorization": f"Bearer {settings.DASHSCOPE_API_KEY}"},
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            content = (
-                data.get("output", {}).get("choices", [{}])[0]
-                    .get("message", {}).get("content", "")
-            )
-            # 提取 JSON
-            content = content.strip()
-            if content.startswith("```"):
-                content = content.split("```")[1].lstrip("json").strip()
-            return json.loads(content)
+        import asyncio
+        parsed, _usage = await asyncio.to_thread(
+            ai_service.complete_json_for,
+            "intake_extract",
+            prompt,
+            max_tokens=1500,
+            temperature=0.3,
+        )
+        return parsed
     except Exception as e:  # noqa: BLE001
         logger.warning("dashscope.enrich_call_failed", error=str(e)[:200])
         return None
