@@ -117,3 +117,4 @@ assert abs(int(time.time()) - int(ts)) < 300   # 5-min skew tolerance
 - **Stub mode**: with no `DASHSCOPE_API_KEY` / `OPENAI_API_KEY` set, the AI service returns deterministic fake outputs so the pipeline still runs end-to-end during dev.
 - **Per-image cost** (qwen-vl-plus 2026 pricing, est.): ~¥0.05 / image tag + ~¥0.001 / embedding. 10 TB of images = roughly ¥6k one-shot.
 - **Latency**: ~2-4s per image (sequential VL call → text embedding). The Celery `media` queue handles this concurrently.
+<!-- coderabbit smoke 2026-05-14 -->
