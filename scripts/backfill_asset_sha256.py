@@ -96,10 +96,43 @@ async def backfill_one(
     *,
     dry_run: bool,
 ) -> dict:
-    """返回 {status: 'done'|'failed'|'r2_missing'|'audit_failed', sha256?, error?}"""
-    aid = str(asset.id)
+    """返回 {status: 'done'|'failed'|'r2_missing'|'audit_failed'|'archived_as_dup'|'vault_placeholder',
+                sha256?, error?}
 
-    # 1. HEAD object 看存在不存在
+    v2 (2026-05-14 二修): 加 Vault 占位 + dup 自动归档 + 每行单独 savepoint
+      · vault/ 类型 asset 不真 GET R2 · 用 sha256(asset_id) 当 placeholder
+      · 算出 sha 后查既有 alive dup · 命中就 soft_delete 当前行（current 是 dup）
+      · 每行包一个 savepoint · 失败不污染整个 transaction
+    """
+    from sqlalchemy import select as _select
+    from app.services import audit_service
+    from app.services.audit_service import AuditAction
+
+    aid = str(asset.id)
+    db_size = asset.size_bytes or 0
+
+    # ─── Vault 类型特殊处理 ─────────────────────────────────────────
+    # Vault items（vault_login / vault_identity / vault_note）的加密 payload
+    # 存在 DB（audit_events / vault_secrets 表）· storage_key='vault/<uuid>'
+    # 是 placeholder · R2 上根本没对象 · sha256 用确定性的 asset_id hash 占位
+    is_vault = (asset.storage_key or "").startswith("vault/")
+    if is_vault:
+        sha = hashlib.sha256(str(asset.id).encode("utf-8")).hexdigest()
+        size = db_size  # 用 DB 现有 size · 不改
+        if dry_run:
+            return {
+                "status": "vault_placeholder",
+                "sha256": sha,
+                "size": size,
+                "name": asset.name,
+                "dry_run": True,
+            }
+        return await _apply_sha_update(
+            db, asset, sha=sha, size=size, db_size=db_size,
+            placeholder_reason="vault_placeholder",
+        )
+
+    # ─── 普通文件路径 · HEAD + GET R2 ─────────────────────────────────
     try:
         head = storage.head_object(asset.storage_key)
     except Exception as e:
@@ -109,9 +142,7 @@ async def backfill_one(
         # R2 上没这个对象 · 历史孤儿
         return {"status": "r2_missing", "storage_key": asset.storage_key}
 
-    # 2. GET object · 算 sha256
     try:
-        # storage.get_object 应该返回 bytes
         body = storage.get_object(asset.storage_key)
         if not isinstance(body, (bytes, bytearray, memoryview)):
             return {"status": "failed", "error": f"get_object returned {type(body)}"}
@@ -120,10 +151,7 @@ async def backfill_one(
     except Exception as e:
         return {"status": "failed", "error": f"GET/hash failed: {e}"}
 
-    # 3. 双检：DB 里 size_bytes 和 R2 size 应该匹配（不严格 · 老行可能没记 size）
-    db_size = asset.size_bytes or 0
     if db_size > 0 and db_size != size:
-        # 不阻塞 · 但记录
         print(f"  ⚠ size mismatch asset={aid} db={db_size} r2={size}")
 
     if dry_run:
@@ -135,21 +163,83 @@ async def backfill_one(
             "dry_run": True,
         }
 
-    # 4. UPDATE
+    return await _apply_sha_update(
+        db, asset, sha=sha, size=size, db_size=db_size,
+        placeholder_reason=None,
+    )
+
+
+async def _apply_sha_update(
+    db: AsyncSession,
+    asset: Asset,
+    *,
+    sha: str,
+    size: int,
+    db_size: int,
+    placeholder_reason: str | None = None,
+) -> dict:
+    """真做 UPDATE · 失败自动归档当前行（如果是 dup）· 每行独立 savepoint。"""
+    from sqlalchemy import select as _select
+    from app.services import audit_service
+    from app.services.audit_service import AuditAction
+
+    aid = str(asset.id)
+
+    # 1. 先查同 project 同 sha 是不是已经有 alive 行（非自身）· dedup 预防
+    dup_row = (
+        await db.execute(
+            _select(Asset.id).where(
+                Asset.project_id == asset.project_id,
+                Asset.sha256 == sha,
+                Asset.deleted_at.is_(None),
+                Asset.id != asset.id,
+            ).limit(1)
+        )
+    ).scalar_one_or_none()
+
+    if dup_row:
+        # 当前行内容跟既有 alive 行重复 · 归档当前行（保留既有）
+        from datetime import datetime as _dt
+        try:
+            await db.execute(
+                update(Asset)
+                .where(Asset.id == asset.id)
+                .values(
+                    deleted_at=_dt.now(UTC),
+                    status="archived",
+                    sha256=sha,  # 也写 sha · 方便审计追溯
+                    size_bytes=size,
+                )
+            )
+            await audit_service.audit(
+                db,
+                action=AuditAction.ASSET_DELETED,
+                tenant_id=asset.tenant_id,
+                project_id=asset.project_id,
+                actor_user_id=None,
+                actor_kind="system",
+                target_kind="asset",
+                target_id=asset.id,
+                metadata={
+                    "operation": "backfill_archived_as_dup",
+                    "kept_id": str(dup_row),
+                    "sha256": sha,
+                    "actor_label": ACTOR_LABEL,
+                },
+            )
+            await db.commit()
+        except Exception as e:
+            await db.rollback()
+            return {"status": "failed", "error": f"archive-as-dup failed: {e}"}
+        return {"status": "archived_as_dup", "sha256": sha, "kept_id": str(dup_row), "name": asset.name}
+
+    # 2. 真 UPDATE sha
     try:
         await db.execute(
             update(Asset)
             .where(Asset.id == asset.id)
             .values(sha256=sha, size_bytes=size, updated_at=datetime.now(UTC))
         )
-    except Exception as e:
-        return {"status": "failed", "error": f"UPDATE failed: {e}"}
-
-    # 5. audit
-    try:
-        from app.services import audit_service
-        from app.services.audit_service import AuditAction
-
         await audit_service.audit(
             db,
             action=AuditAction.ASSET_UPDATED,
@@ -163,15 +253,17 @@ async def backfill_one(
                 "operation": "backfill_sha256",
                 "sha256_set_to": sha,
                 "size_correction": (size != db_size),
+                "placeholder_reason": placeholder_reason,
                 "actor_label": ACTOR_LABEL,
             },
         )
+        await db.commit()
     except Exception as e:
-        # 不致命 · sha 已写
-        print(f"  ⚠ audit write failed asset={aid}: {e}")
-        return {"status": "audit_failed", "sha256": sha, "error": str(e)}
+        await db.rollback()
+        return {"status": "failed", "error": f"UPDATE failed: {e}"}
 
-    return {"status": "done", "sha256": sha, "size": size, "name": asset.name}
+    status = "vault_placeholder" if placeholder_reason == "vault_placeholder" else "done"
+    return {"status": status, "sha256": sha, "size": size, "name": asset.name}
 
 
 async def main() -> int:
@@ -192,9 +284,11 @@ async def main() -> int:
         STATE_FILE.unlink()
         print(f"state file removed: {STATE_FILE}")
 
-    state = load_state() if args.continue_ else {"done": [], "failed": [], "stuck": [], "started_at": None}
+    state = load_state() if args.continue_ else {"done": [], "failed": [], "stuck": [], "archived": [], "vault": [], "started_at": None}
+    state.setdefault("archived", [])
+    state.setdefault("vault", [])
     state["started_at"] = state.get("started_at") or datetime.now(UTC).isoformat()
-    done_ids = set(state["done"])
+    done_ids = set(state["done"]) | set(state.get("archived", [])) | set(state.get("vault", []))
 
     async with AsyncSessionLocal() as db:
         if args.asset_id:
@@ -225,6 +319,12 @@ async def main() -> int:
             if result["status"] == "done":
                 print(f"✓ sha={result['sha256'][:12]}... size={result.get('size', '?')} ({dt:.1f}s)")
                 state["done"].append(str(asset.id))
+            elif result["status"] == "vault_placeholder":
+                print(f"V vault placeholder sha={result['sha256'][:12]}... ({dt:.1f}s)")
+                state["vault"].append(str(asset.id))
+            elif result["status"] == "archived_as_dup":
+                print(f"D archived as dup of {result['kept_id'][:8]}... sha={result['sha256'][:12]}...")
+                state["archived"].append(str(asset.id))
             elif result["status"] == "r2_missing":
                 print(f"⊗ R2 missing key={result['storage_key']}")
                 state["stuck"].append({"id": str(asset.id), "storage_key": result["storage_key"]})
@@ -235,22 +335,21 @@ async def main() -> int:
                 print(f"✗ {result.get('error', 'unknown')}")
                 state["failed"].append({"id": str(asset.id), "error": result.get("error")})
 
-            # 每 10 行 commit + save state（防中途崩失进度）
+            # 每 10 行 save state · commit 已在 _apply_sha_update 里逐行 commit · 不再批量 commit
             if not args.dry_run and i % 10 == 0:
-                await db.commit()
                 save_state(state)
-                print(f"  ... committed batch · state saved")
+                print(f"  ... state saved at row {i}")
 
-        if not args.dry_run:
-            await db.commit()
         save_state(state)
 
     # 汇总
     print()
-    print(f"=== Backfill Summary ===")
-    print(f"  done       : {len(state['done'])}")
-    print(f"  failed     : {len(state['failed'])}")
-    print(f"  r2_missing : {len(state['stuck'])}")
+    print("=== Backfill Summary ===")
+    print(f"  done         : {len(state['done'])}")
+    print(f"  vault marker : {len(state.get('vault', []))}")
+    print(f"  archived dup : {len(state.get('archived', []))}")
+    print(f"  failed       : {len(state['failed'])}")
+    print(f"  r2_missing   : {len(state['stuck'])}")
     if state["stuck"]:
         print()
         print("R2 missing assets (需要单独处理 · 大概率是历史 uploading 孤儿):")
