@@ -217,15 +217,18 @@ if [[ "$BAD" != "0" ]]; then
 fi
 ok "0 不合规 · 可以装 013"
 
-# ─── 第 7 步 · alembic 013 最终封印 ─────────────────────────────────
+# ─── 第 7 步 · finalize_sha256_strict.py · 最终封印 ─────────────────
 
-header "[7/7] 装 alembic 013 · VALIDATE + NOT NULL · 最终封印"
+header "[7/7] 跑 finalize_sha256_strict.py · VALIDATE + NOT NULL · 最终封印"
 echo "  注意：装完后 sha256 是 DB 层硬约束 · 任何空写入会被 PG 直接拒"
-echo "        downgrade 只能撤 NOT NULL · 不能撤 VALIDATE（PG 限制）"
-confirm "确定要装吗？"
+echo
+echo "  → dry-run 先看要做什么..."
+remote "$DC exec -T api python3 scripts/finalize_sha256_strict.py --dry-run"
+echo
+confirm "确定要 --execute 真做吗？"
 
-remote "$DC exec -T api alembic upgrade 013_sha256_not_null"
-ok "013 装上 · 100% accuracy 不变式 DB 层强制"
+remote "$DC exec -T api python3 scripts/finalize_sha256_strict.py --execute"
+ok "finalize 完成 · 100% accuracy 不变式 DB 层强制"
 
 # ─── 验证终态 ───────────────────────────────────────────────────────
 

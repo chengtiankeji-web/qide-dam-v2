@@ -1,40 +1,28 @@
-"""v3 phase 1.3 phase 4 续 (2026-05-14): VALIDATE CHECK + 设置 sha256 NOT NULL
+"""v3 phase 1.3 phase 4 续 (2026-05-14): sha256 强制不变式的 alembic chain 占位
 
 Revision ID: 013_sha256_not_null
 Revises: 012_sha256_check
 Create Date: 2026-05-14
 
 ═══════════════════════════════════════════════════════════════════════
-⚠️ 不要立即跑这个 migration · 必须先：
+设计修正（2026-05-14 二修）：
 ═══════════════════════════════════════════════════════════════════════
 
-1. alembic upgrade 012_sha256_check    # 装 CHECK NOT VALID
-2. 跑 scripts/backfill_asset_sha256.py --execute  # 补完所有 145 行
-3. 人工 verify 0 行 sha256='' or NULL :
-     SELECT COUNT(*) FROM assets WHERE sha256 IS NULL OR sha256='' OR sha256 !~ '^[a-f0-9]{64}$';
-   → 必须 = 0 · 否则本 migration 第 2 步会失败
-4. alembic upgrade 013_sha256_not_null  # 这一步
+第一版试图在本 migration 里做 VALIDATE + NOT NULL，但有个**部署级 bug**：
+  - docker-compose.prod.yml 让 api 容器启动时自动跑 `alembic upgrade head`
+  - 数据没干净时 RAISE EXCEPTION 会让 api 容器 entrypoint 失败 → 整个 prod 部署卡死
+
+修正：本 migration 只 RAISE NOTICE 提示状态 · 不真做 ALTER TABLE。
+     真正的 VALIDATE + NOT NULL 拆到独立脚本 scripts/finalize_sha256_strict.py，
+     由人工在 backfill 完成后**显式调用**。
+
+这样：
+  · 任何时候 `alembic upgrade head` 都安全（不会阻塞部署）
+  · 数据没干净时不破坏 invariant（CHECK NOT VALID 仍然在保护新写入）
+  · 数据干净后 · 跑一次 finalize 脚本 · 把 NOT NULL 落地
+  · 完成的事实记录在 audit_events（不可篡改）
 
 ═══════════════════════════════════════════════════════════════════════
-本 migration 做什么：
-═══════════════════════════════════════════════════════════════════════
-
-1. VALIDATE CONSTRAINT —— 把 alembic 012 加的 NOT VALID 约束验证为 VALID
-   · 此步会 scan 整张表 · 任何不合规行 → 抛错 → migration 回滚
-   · 这是确保数据 100% 干净的最后一道关
-2. ALTER COLUMN sha256 SET NOT NULL —— DB 层强制非空
-   · 这一步只在 VALIDATE 通过后才执行（PG 自动检查 NULL 行）
-   · 跑通后 ORM default="" 也无法插 NULL · sha256 是真硬约束
-
-═══════════════════════════════════════════════════════════════════════
-为什么分两个 migration（012 + 013）而不是合并：
-═══════════════════════════════════════════════════════════════════════
-
-· 012 立即可装 · 立即给"新写入"加防线 · 不阻塞业务
-· backfill 是数据工作 · 跑分钟级 · 跨 migration 容易控制时序
-· 013 一旦运行 · 不可回滚到允许 NULL（downgrade 仅删 NOT NULL · 留 CHECK）
-  · 必须确保数据先 100% 净化 · 这是工程纪律
-· 分开看起来麻烦 · 但避免了"一个 migration 半成功半失败"的灾难
 """
 from __future__ import annotations
 
@@ -50,46 +38,39 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # ─── 1) 前置 sanity check：再次确认 0 不合规行 ─────────────────────
+    # 仅报告状态 · 不真做 ALTER TABLE。
+    # 真正的 VALIDATE + NOT NULL 在 scripts/finalize_sha256_strict.py 里手动跑。
     op.execute(
         """
         DO $$
         DECLARE
             bad_count INT;
+            already_not_null BOOLEAN;
         BEGIN
             SELECT COUNT(*) INTO bad_count
               FROM assets
               WHERE deleted_at IS NULL
                 AND (sha256 IS NULL OR sha256 = '' OR sha256 !~ '^[a-f0-9]{64}$');
-            IF bad_count > 0 THEN
-                RAISE EXCEPTION
-                  '[013_sha256_not_null] 检出 % 行 sha256 不合规 · 先跑 backfill_asset_sha256.py · migration 中止',
+
+            SELECT (is_nullable = 'NO') INTO already_not_null
+              FROM information_schema.columns
+              WHERE table_name = 'assets' AND column_name = 'sha256';
+
+            IF already_not_null THEN
+                RAISE NOTICE '[013_sha256_not_null] sha256 already NOT NULL · invariant secured';
+            ELSIF bad_count > 0 THEN
+                RAISE NOTICE
+                  '[013_sha256_not_null] PENDING: % bad rows · CHECK NOT VALID still protecting new writes · run scripts/backfill_asset_sha256.py then scripts/finalize_sha256_strict.py',
                   bad_count;
+            ELSE
+                RAISE NOTICE
+                  '[013_sha256_not_null] 0 bad rows · ready for finalize · run: python scripts/finalize_sha256_strict.py';
             END IF;
-            RAISE NOTICE '[013_sha256_not_null] alive rows clean · proceeding with VALIDATE + NOT NULL';
         END $$;
         """
     )
 
-    # ─── 2) VALIDATE CHECK constraint（把 NOT VALID 升级为 VALID） ─────
-    # 此步会 scan 全表 · 失败时整个 migration 回滚
-    op.execute(
-        """
-        ALTER TABLE assets VALIDATE CONSTRAINT chk_assets_sha256_strict;
-        """
-    )
-
-    # ─── 3) 设置 sha256 NOT NULL ──────────────────────────────────────
-    # · 此前 12k+ 现存行必须 ALL sha256 IS NOT NULL · sanity check 已保证
-    # · 设完之后 INSERT WITHOUT sha256 → PG 直接报错 (DEFAULT '' 还会工作但
-    #   与 CHECK 约束冲突 → 也报错)
-    op.execute(
-        """
-        ALTER TABLE assets ALTER COLUMN sha256 SET NOT NULL;
-        """
-    )
-
-    # ─── 4) audit ─────────────────────────────────────────────────────
+    # audit 留痕：本 migration 已"应用"（但 invariant 是否真生效取决于 finalize 是否跑过）
     op.execute(
         """
         INSERT INTO audit_events (
@@ -102,18 +83,17 @@ def upgrade() -> None:
             NULL,
             NULL,
             'system',
-            'audit.constraint.validated',
+            'audit.migration.applied',
             'schema',
             NULL,
             'success',
-            'Phase 4 complete: sha256 VALIDATE + NOT NULL · 100% accuracy invariant secured',
+            'Phase 4 marker · 013_sha256_not_null applied (alembic chain advance) · real ALTER deferred to scripts/finalize_sha256_strict.py',
             NULL,
             NULL,
             jsonb_build_object(
                 'migration', '013_sha256_not_null',
-                'constraint', 'chk_assets_sha256_strict',
-                'mode', 'VALID',
-                'not_null', true,
+                'mode', 'marker_only',
+                'finalize_script', 'scripts/finalize_sha256_strict.py',
                 'actor_label', 'alembic_013_sha256_not_null'
             )
         FROM tenants t
@@ -124,10 +104,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """删 NOT NULL · 保留 CHECK · 让 sha256 又能为空（虽然 CHECK 会拒 INSERT）"""
-    op.execute(
-        """
-        ALTER TABLE assets ALTER COLUMN sha256 DROP NOT NULL;
-        """
-    )
-    # 不还原 VALIDATE → NOT VALID · 没意义（PG 一旦 VALIDATE 就不可逆向）
+    """本 migration 仅是 marker · downgrade 无操作"""
+    pass
