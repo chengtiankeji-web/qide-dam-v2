@@ -153,13 +153,13 @@ echo "    服务: $SERVICES"
 BUILD_SVC="api"
 for svc in worker beat; do
   if echo " $SERVICES " | grep -q " $svc "; then
-    BUILD_SVC="$BUILD_SVC $svc"
+    BUILD_SVC="${BUILD_SVC} $svc"
   else
     warn "service '$svc' 不在 compose · 跳过"
   fi
 done
-echo "  → docker build $BUILD_SVC（~30-60 秒）..."
-remote "$DC build $BUILD_SVC"
+echo "  → docker build ${BUILD_SVC}（~30-60 秒）..."
+remote "$DC build ${BUILD_SVC}"
 ok "build 完成"
 
 # ─── 第 3 步 · alembic 012 ───────────────────────────────────────────
@@ -167,8 +167,8 @@ ok "build 完成"
 header "[3/7] 装 alembic 012 · CHECK NOT VALID · 不阻塞存量"
 confirm "继续？"
 
-echo "  → 重启 $BUILD_SVC 容器（拉新镜像）..."
-remote "$DC up -d --force-recreate $BUILD_SVC"
+echo "  → 重启 ${BUILD_SVC} 容器（拉新镜像）..."
+remote "$DC up -d --force-recreate ${BUILD_SVC}"
 sleep 6  # 等 api 容器健康
 
 echo "  → alembic upgrade 012_sha256_check ..."
