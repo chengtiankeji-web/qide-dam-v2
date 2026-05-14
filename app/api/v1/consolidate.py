@@ -78,9 +78,12 @@ SCOPE_PATTERNS = {
 }
 
 # ─── 单文件最大 fetch 大小（防把超大文档全塞 LLM） ─────────────────
-MAX_PER_FILE_BYTES = 200 * 1024  # 200 KB
-# 整 prompt 上限（DashScope qwen-plus 32k context · 留 2k 给 system + 输出）
-MAX_TOTAL_INPUT_BYTES = 100 * 1024
+MAX_PER_FILE_BYTES = 500 * 1024  # 500 KB
+# 整 prompt 上限（qwen-plus 128K context · 中文 UTF-8 约 3 字节/字 · 留 buffer 给 system + 输出）
+# 5-13 晚 Sam 拍板：模型换 qwen-plus · 上限扩到 300 KB
+MAX_TOTAL_INPUT_BYTES = 300 * 1024
+# v3 P1.3 (2026-05-13 晚) 用 qwen-plus 跑 consolidate · 大 context · 文件多也吃得下
+CONSOLIDATE_MODEL = "qwen-plus"
 
 
 class ConsolidatePreviewIn(BaseModel):
@@ -209,7 +212,8 @@ async def consolidate_preview(
             model="none",
         )
 
-    # 拉文本（截到 100 KB 总量）
+    # 拉文本（截到 MAX_TOTAL_INPUT_BYTES 总量）
+    # v3 P1.3 (2026-05-13 晚) 修：按字节切而非字符切 · 中文 UTF-8 多字节场景不漏算
     sources_text: list[str] = []
     used_asset_ids: list[uuid.UUID] = []
     total_bytes = 0
@@ -223,9 +227,12 @@ async def consolidate_preview(
             continue
         block_header = f"\n\n--- file: {a.name} (asset_id={a.id}, {a.size_bytes}B) ---\n"
         block = block_header + body
-        if total_bytes + len(block.encode("utf-8")) > MAX_TOTAL_INPUT_BYTES:
+        block_bytes = block.encode("utf-8")
+        if total_bytes + len(block_bytes) > MAX_TOTAL_INPUT_BYTES:
             remaining = MAX_TOTAL_INPUT_BYTES - total_bytes
-            block = block[:remaining]
+            # 真按字节切 + utf-8 容错（防多字节字符切到一半）
+            block_bytes = block_bytes[:remaining]
+            block = block_bytes.decode("utf-8", errors="ignore")
             truncated = True
         sources_text.append(block)
         used_asset_ids.append(a.id)
@@ -237,15 +244,16 @@ async def consolidate_preview(
         f"按上方 system 指示精炼成 memory.md：\n\n{combined}"
     )
 
-    # 调 ai_service.text_gen · 失败回退 stub
+    # 调 ai_service.text_gen · qwen-plus（128K context）· 失败回退 stub
     try:
         proposed = ai_service.text_gen(
             prompt,
             system=pat["system_prompt"],
-            max_tokens=2048,
-            temperature=0.3,  # 偏低 · 更稳定
+            max_tokens=4096,         # 输出也要宽松（精炼后的 memory.md 可能数千字）
+            temperature=0.3,         # 偏低 · 更稳定
+            model=CONSOLIDATE_MODEL, # qwen-plus
         )
-        model = "qwen3.6-flash"
+        model = CONSOLIDATE_MODEL
     except Exception as exc:  # noqa: BLE001
         proposed = f"# {payload.scope.title()} · 精炼候选\n\n_LLM 调用失败: {exc!s}_\n\n## 源文件列表（fallback）\n\n" + "\n".join(
             f"- {a.name} ({a.size_bytes}B)" for a in assets if a.id in used_asset_ids

@@ -201,16 +201,20 @@ def describe_image(
 # ----- text generation (qwen3.6-flash) -----
 
 def text_gen(prompt: str, *, system: str | None = None, max_tokens: int = 1024,
-             temperature: float = 0.5) -> str:
-    """Pure text generation via qwen3.6-flash.
+             temperature: float = 0.5, model: str | None = None) -> str:
+    """Pure text generation via DashScope qwen 系列。
 
-    用途：文档总结 / 文案重写 / 视觉描述精简等。当前 pipeline 没串入，
-    给未来 tasks_document / tasks_text_summary 备用。Sam 2026-05-08 拍板。
+    用途：文档总结 / 文案重写 / 视觉描述精简等。Sam 2026-05-08 拍板。
+
+    v3 P1.3 (2026-05-13 晚): 加 model 参数 · 默认 qwen3.6-flash (短任务)
+        consolidate 这种 100KB+ 输入场景显式传 model="qwen-plus" (128K context · 贵但够大)。
 
     返回纯文本（解析过 choice.message.content）。失败时返回 [error] 前缀。
     """
     if not has_provider():
         return f"[stub] text_gen({prompt[:40]}...)"
+
+    effective_model = model or TEXT_GEN_MODEL
 
     if settings.DASHSCOPE_API_KEY:
         try:
@@ -226,7 +230,7 @@ def text_gen(prompt: str, *, system: str | None = None, max_tokens: int = 1024,
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": TEXT_GEN_MODEL,
+                    "model": effective_model,
                     "input": {"messages": messages},
                     "parameters": {
                         "result_format": "message",
@@ -234,7 +238,7 @@ def text_gen(prompt: str, *, system: str | None = None, max_tokens: int = 1024,
                         "temperature": temperature,
                     },
                 },
-                timeout=60.0,
+                timeout=120.0,  # qwen-plus 大输入可能慢
             )
             resp.raise_for_status()
             data = resp.json()
