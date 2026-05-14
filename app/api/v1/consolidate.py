@@ -78,12 +78,12 @@ SCOPE_PATTERNS = {
 }
 
 # ─── 单文件最大 fetch 大小（防把超大文档全塞 LLM） ─────────────────
-MAX_PER_FILE_BYTES = 500 * 1024  # 500 KB
-# 整 prompt 上限（qwen-plus 128K context · 中文 UTF-8 约 3 字节/字 · 留 buffer 给 system + 输出）
-# 5-13 晚 Sam 拍板：模型换 qwen-plus · 上限扩到 300 KB
-MAX_TOTAL_INPUT_BYTES = 300 * 1024
-# v3 P1.3 (2026-05-13 晚) 用 qwen-plus 跑 consolidate · 大 context · 文件多也吃得下
-CONSOLIDATE_MODEL = "qwen-plus"
+MAX_PER_FILE_BYTES = 200 * 1024  # 200 KB
+# v3 P1.3 三修 (2026-05-13 深夜): 之前 qwen-plus 默认 32K context · 我塞 300KB ≈ 100K tokens 直接 400 ·
+# 换 qwen-long (1M tokens · 远够) · 大文档场景永远不超 context · max input 安全降到 200 KB（约 60K tokens）·
+# qwen-long 输出 max_tokens=8K 也比 qwen-plus 大
+MAX_TOTAL_INPUT_BYTES = 200 * 1024  # ~60K tokens for Chinese · qwen-long 接收 ≤1M tokens 永远够
+CONSOLIDATE_MODEL = "qwen-long"     # DashScope: 1M tokens context · 文档总结场景首选
 
 
 class ConsolidatePreviewIn(BaseModel):
@@ -258,16 +258,16 @@ async def consolidate_preview(
         f"按上方 system 指示精炼成 memory.md：\n\n{combined}"
     )
 
-    # 调 ai_service.text_gen · qwen-plus（128K context）· 失败回退 stub
+    # 调 ai_service.text_gen_for · use_case=long_doc_consolidate ·
+    # 自动按 USE_CASE_MODELS 走 qwen-long → qwen-plus → qwen3.6-flash 三级 fallback
     try:
-        proposed = ai_service.text_gen(
+        proposed = ai_service.text_gen_for(
+            "long_doc_consolidate",
             prompt,
             system=pat["system_prompt"],
-            max_tokens=4096,         # 输出也要宽松（精炼后的 memory.md 可能数千字）
-            temperature=0.3,         # 偏低 · 更稳定
-            model=CONSOLIDATE_MODEL, # qwen-plus
+            temperature=0.3,  # 偏低 · 更稳定
         )
-        model = CONSOLIDATE_MODEL
+        model = CONSOLIDATE_MODEL  # 报告里显示首选模型 · 实际跑的模型在 log
     except Exception as exc:  # noqa: BLE001
         proposed = f"# {payload.scope.title()} · 精炼候选\n\n_LLM 调用失败: {exc!s}_\n\n## 源文件列表（fallback）\n\n" + "\n".join(
             f"- {a.name} ({a.size_bytes}B)" for a in assets if a.id in used_asset_ids

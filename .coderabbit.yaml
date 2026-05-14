@@ -1,0 +1,57 @@
+# CodeRabbit AI Code Review · 2026-05-13 Sam 装
+# 文档：https://docs.coderabbit.ai/getting-started/configure-coderabbit/
+
+language: "zh-CN"
+
+reviews:
+  request_changes_workflow: false   # 不强制 request_changes · 评论形式审
+  high_level_summary: true          # 顶部出 PR 摘要
+  poem: false                       # 关默认的"诗"输出
+  review_status: true
+  collapse_walkthrough: true        # walkthrough 默认折叠 · 不刷屏
+
+  auto_review:
+    enabled: true
+    drafts: false                   # draft PR 不审
+
+  path_filters:
+    - "!**/node_modules/**"
+    - "!**/dist/**"
+    - "!**/__pycache__/**"
+    - "!**/.next/**"
+    - "!**/.venv/**"
+    - "!alembic/versions/*_initial.py"   # 初始 migration 不重审
+    - "!app/workers/_db.py"               # 极简 boilerplate
+    - "!**/migrations/**"
+
+  path_instructions:
+    - path: "app/api/v1/**/*.py"
+      instructions: |
+        FastAPI 端点 · 重点审：
+        1. Principal/ACL 检查是否在所有 mutation 之前
+        2. 是否调 audit_service.audit() 给 mutation 留痕
+        3. 数据库 commit/rollback 是否对齐
+        4. exception 是否吞了不该吞的（特别防 BLE001 滥用）
+    - path: "app/services/*.py"
+      instructions: |
+        Service 层 · 重点审：
+        1. 是否做 tenant_id 边界过滤
+        2. 异步 await 是否正确（async/await 链）
+        3. 大查询是否分页 · 防 OOM
+        4. dedup / unique 是否考虑 race（并发场景）
+    - path: "alembic/versions/*.py"
+      instructions: |
+        Schema migration · 重点审：
+        1. upgrade() 是否幂等（IF NOT EXISTS / IF EXISTS）
+        2. downgrade() 是否真的 reverse upgrade
+        3. data migration 是否考虑 prod 千万行场景的锁表风险
+        4. 是否漏调 NOT NULL / FK 约束
+
+  tools:
+    ruff:
+      enabled: true                 # Python linter 已用 · CodeRabbit 也开
+    actionlint:
+      enabled: true                 # GitHub Actions 语法检查
+
+chat:
+  auto_reply: true                  # @coderabbit 自动应答

@@ -35,10 +35,45 @@ DASHSCOPE_TEXT_GEN_URL = (
     "https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation"
 )
 
-# Model identifiers · 由 Sam 2026-05-08 拍板
+# Model identifiers · 由 Sam 2026-05-08 拍板 · 2026-05-13 深夜 Sam 加 use-case 路由
 VISION_MODEL = "qwen3-vl-plus"      # 图片打标 / alt-text / visual-description
-TEXT_GEN_MODEL = "qwen3.6-flash"    # 文档总结 / 文案重写 / 未来文本任务
+TEXT_GEN_MODEL = "qwen3.6-flash"    # 短文 / 快响应 / 大量并发的默认模型
 EMBED_MODEL = "text-embedding-v3"   # 向量 768 维 · 与 alembic vector(768) 列对齐
+
+
+# ─── v3 P1.3 LLM Use-case Routing (2026-05-13 深夜) ──────────────────
+# Sam 拍板按调研报告 handover/code-quality-and-llm-routing-strategy-2026-05-13.md
+# 来源数据：qwen-3.6 (2026-04 发布) · qwen-long (1M tokens · 长文档专用)
+#
+# 用法：调 `text_gen_for("long_doc_consolidate", prompt, ...)` 而非裸 `text_gen(...)` ·
+# 自动选最合适模型 · 加 fallback chain。
+USE_CASE_MODELS: dict[str, list[str]] = {
+    # 长文档总结 · Memory/Handover/Plans/Sources consolidate
+    "long_doc_consolidate":  ["qwen-long", "qwen-plus", "qwen3.6-flash"],
+    # 客户资料 intake / 字段抽取
+    "intake_extract":        ["qwen-plus", "qwen-long", "qwen3.6-flash"],
+    # 复杂推理 / Skills workflow / 法律 / 财务
+    "deep_reasoning":        ["qwen-max", "qwen-plus", "qwen3.6-flash"],
+    # 询盘分级 · 短文 + 高并发 · 6 要素 A/B/C/D
+    "lead_classify":         ["qwen3.6-flash", "qwen-plus"],
+    # SEO 写文 · Kiln / CMH 引擎 · 1500-2500 字 · 需要推理
+    "seo_writer":            ["qwen-plus", "qwen-long", "qwen3.6-flash"],
+    # 翻译 / 文案改写 · 中短
+    "translate_rewrite":     ["qwen3.6-flash", "qwen-plus"],
+    # 通用 · 不确定时用这个
+    "generic":               ["qwen3.6-flash", "qwen-plus"],
+}
+
+# Use-case 默认 max_tokens 上限（输出长度）
+USE_CASE_MAX_TOKENS: dict[str, int] = {
+    "long_doc_consolidate": 4000,
+    "intake_extract":       2000,
+    "deep_reasoning":       3000,
+    "lead_classify":        500,    # 分级结果短
+    "seo_writer":           4000,
+    "translate_rewrite":    2000,
+    "generic":              1500,
+}
 
 
 def _stub_embedding(seed: str) -> list[float]:
@@ -200,6 +235,66 @@ def describe_image(
 
 # ----- text generation (qwen3.6-flash) -----
 
+def text_gen_for(
+    use_case: str,
+    prompt: str,
+    *,
+    system: str | None = None,
+    temperature: float = 0.5,
+    max_tokens: int | None = None,
+) -> str:
+    """v3 P1.3 (2026-05-13 深夜) · use-case 路由 + 自动 fallback。
+
+    use_case 必须在 USE_CASE_MODELS 中 · 否则 fall through 到 'generic'。
+
+    模型选择按 USE_CASE_MODELS 表 · 第一个失败自动切第二个 · 都失败返 stub。
+    每次切换 log 一行便于追溯实际用哪个模型。
+
+    Sam 调研报告 handover/code-quality-and-llm-routing-strategy-2026-05-13.md
+    """
+    fallback_chain = USE_CASE_MODELS.get(use_case, USE_CASE_MODELS["generic"])
+    effective_max_tokens = max_tokens or USE_CASE_MAX_TOKENS.get(use_case, 1500)
+
+    last_error: Exception | None = None
+    for model_name in fallback_chain:
+        try:
+            result = text_gen(
+                prompt,
+                system=system,
+                max_tokens=effective_max_tokens,
+                temperature=temperature,
+                model=model_name,
+            )
+            # text_gen 失败返 "[error] ..." 字符串 · 不抛异常 · 这里判前缀决定是否 fallback
+            if result.startswith("[error]"):
+                logger.warning(
+                    "ai.text_gen_for.model_failed",
+                    use_case=use_case, model=model_name, error_prefix=result[:80],
+                )
+                last_error = RuntimeError(result)
+                continue
+            if result.startswith("[stub]"):
+                # 没 provider key 时直接 stub · 不走 chain
+                return result
+            # 真成功 · log + 返
+            logger.info("ai.text_gen_for.ok", use_case=use_case, model=model_name, output_len=len(result))
+            return result
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "ai.text_gen_for.exception",
+                use_case=use_case, model=model_name, error=str(e),
+            )
+            last_error = e
+            continue
+
+    # 全部模型都失败 · 返 stub 让 pipeline 不中断
+    logger.error(
+        "ai.text_gen_for.all_failed", use_case=use_case, chain=fallback_chain,
+        last_error=str(last_error) if last_error else "?",
+    )
+    return f"[stub] text_gen_for({use_case}) · all models failed: {last_error}"
+
+
 def text_gen(prompt: str, *, system: str | None = None, max_tokens: int = 1024,
              temperature: float = 0.5, model: str | None = None) -> str:
     """Pure text generation via DashScope qwen 系列。
@@ -238,7 +333,8 @@ def text_gen(prompt: str, *, system: str | None = None, max_tokens: int = 1024,
                         "temperature": temperature,
                     },
                 },
-                timeout=120.0,  # qwen-plus 大输入可能慢
+                # v3 P1.3 三修 (2026-05-13 深夜): qwen-long 100KB+ 输入可能 60-120s
+                timeout=300.0,  # 5 min ceiling · 服务器 nginx 也要配长 timeout
             )
             resp.raise_for_status()
             data = resp.json()
