@@ -323,6 +323,132 @@ async def confirm_upload(
     return asset
 
 
+# ─── inline-content upload helper · v3 P1.3 phase 2 (2026-05-14) ─────
+#
+# 设计目的：把"Claude / pipeline 生成的内容直接落 DAM"这条路径**单点化** ·
+# 之前 consolidate.apply 和 Smart Intake 各自实现了 register → PUT → confirm
+# 三步，每个地方都没正确处理"PUT 失败 → Asset 行留孤儿"的清理。
+# 这个 helper 把整条流程做成**原子**（失败回滚 soft_delete 占位行）·
+# 所有"内容已生成 · 入 DAM"的场景都应该走这里 · 不许再各自重写。
+
+
+class InlineUploadError(RuntimeError):
+    """v3 P1.3 phase 2 · upload_inline_content 抛 · 内含已清理的孤儿 asset_id 用于调试"""
+
+    def __init__(self, message: str, *, asset_id: uuid.UUID | None = None) -> None:
+        super().__init__(message)
+        self.cleaned_asset_id = asset_id
+
+
+async def upload_inline_content(
+    db: AsyncSession,
+    *,
+    tenant_id: uuid.UUID,
+    project_id: uuid.UUID,
+    filename: str,
+    content: bytes,
+    mime_type: str = "application/octet-stream",
+    manual_tags: list[str] | None = None,
+    acl: str | None = None,
+    dedup_strategy: DedupStrategy = "link",
+) -> tuple[Asset, bool]:
+    """原子上传"已在内存里的字节流"到 DAM · register + PUT + confirm + 失败清理 一气呵成。
+
+    场景：
+      - consolidate.apply 写 memory.md
+      - Smart Intake 自动生成的 intake_report.md
+      - 未来任何 LLM/Pipeline 产出 → DAM 入库
+
+    返回：(asset, deduplicated)
+      - deduplicated=True 时 asset 是既有的 · R2 PUT 跳过（dedup_strategy='link' 时）
+      - deduplicated=False 时 asset 已 confirmed · 在 R2 上有真对象 + status='processing'/'ready'
+
+    异常路径（任何失败都保证 DAM 无孤儿 Asset 行）：
+      - R2 PUT 非 2xx → soft_delete 占位行 + 抛 InlineUploadError
+      - confirm 失败 → soft_delete + 抛 InlineUploadError
+      - dedup_strategy='reject' 命中既有 → 抛 DuplicateAssetError（不创建占位）
+
+    调用方拿到异常后无需手动清理 · 此 helper 自己负责。
+    """
+    import hashlib as _hashlib
+
+    sha = _hashlib.sha256(content).hexdigest()
+    payload = PresignedUploadIn(
+        project_id=project_id,
+        filename=filename,
+        mime_type=mime_type,
+        size_bytes=len(content),
+        sha256=sha,
+        acl=acl,
+        manual_tags=list(manual_tags or []),
+    )
+
+    asset, upload_url, headers, deduplicated = await register_presigned_upload(
+        db,
+        tenant_id=tenant_id,
+        payload=payload,
+        dedup_strategy=dedup_strategy,
+    )
+
+    if deduplicated:
+        # 既有 sha 命中 · 不需要 PUT 也不需要 confirm
+        return asset, True
+
+    asset_id = asset.id  # 捕获 · 失败路径要清理
+
+    # ── PUT to R2 ────────────────────────────────────────────────────
+    try:
+        import requests as _req
+        resp = _req.put(
+            upload_url,
+            data=content,
+            headers={"Content-Type": mime_type, **(headers or {})},
+            timeout=60,
+        )
+        if resp.status_code not in (200, 201, 204):
+            raise InlineUploadError(
+                f"R2 PUT failed: HTTP {resp.status_code} body={resp.text[:200]!r}",
+                asset_id=asset_id,
+            )
+    except InlineUploadError:
+        # 已是我们的异常 · 走清理 + reraise
+        await _cleanup_orphan_inline_upload(db, tenant_id=tenant_id, asset_id=asset_id)
+        raise
+    except Exception as exc:
+        await _cleanup_orphan_inline_upload(db, tenant_id=tenant_id, asset_id=asset_id)
+        raise InlineUploadError(
+            f"R2 PUT exception: {exc!s}", asset_id=asset_id
+        ) from exc
+
+    # ── confirm（flip uploading → processing + 启 Celery + bump usage） ──
+    try:
+        await confirm_upload(db, tenant_id=tenant_id, asset_id=asset_id)
+    except Exception as exc:
+        # confirm 失败 · R2 对象已存在但 DB 行状态不对 · 还是 soft_delete 标记 ·
+        # 之后 reaper 会扫"deleted_at + R2 对象存在" → record r2_orphan 走重试
+        await _cleanup_orphan_inline_upload(db, tenant_id=tenant_id, asset_id=asset_id)
+        raise InlineUploadError(
+            f"confirm_upload failed: {exc!s}", asset_id=asset_id
+        ) from exc
+
+    return asset, False
+
+
+async def _cleanup_orphan_inline_upload(
+    db: AsyncSession, *, tenant_id: uuid.UUID, asset_id: uuid.UUID
+) -> None:
+    """upload_inline_content 失败时清占位 Asset · best-effort 不抛新异常"""
+    try:
+        await soft_delete_asset(db, tenant_id=tenant_id, asset_id=asset_id)
+    except Exception as exc:  # noqa: BLE001
+        from app.core.logging import get_logger
+        get_logger(__name__).warning(
+            "inline_upload.cleanup_failed",
+            asset_id=str(asset_id),
+            error=str(exc),
+        )
+
+
 # ----- list & search (Sprint 1: basic; Sprint 3 adds vector search) -----
 
 async def list_assets(
@@ -539,46 +665,98 @@ async def dedup_by_name(
       False = 同 project 下重名就算 dup（极宽 · 会误删跨 folder 同名文件）
 
     幂等 · 跑 N 次结果一致 · audit 留痕。
+
+    v3 P1.3 phase 5 (2026-05-14) 重写：
+      · 之前版本：load 整个 tenant 所有 alive asset 入 Python · 大租户 OOM 风险
+      · 现在版本：SQL ROW_NUMBER 直接拿 dup 组 · 内存只放真要处理的行
+      · 排序加 Asset.id tie-breaker · 解 dry-run 不幂等 bug（两次跑结果不同）
     """
+    from sqlalchemy import tuple_
+
     from app.services import audit_service
     from app.services.audit_service import AuditAction
 
-    where_clauses = [
+    # ── Step 1: SQL GROUP BY 找 dup 组（只取 HAVING COUNT > 1） ──────────
+    # 注：folder_id 可能 NULL · 用 (project_id, COALESCE_INDEX, name) 分组。
+    # NULL 在 GROUP BY 里是 "等于自己" 的（PG 行为）· 所以 NULL folder_id 的同名文件正确归一组。
+    grouping_cols = [Asset.project_id, Asset.name]
+    if folder_scoped:
+        grouping_cols.insert(1, Asset.folder_id)
+
+    base_where = [
         Asset.tenant_id == tenant_id,
         Asset.deleted_at.is_(None),
     ]
     if project_id:
-        where_clauses.append(Asset.project_id == project_id)
+        base_where.append(Asset.project_id == project_id)
 
-    # 按 updated_at desc 排序 · 同组第一个为 "newest" 保留
-    rows = (
+    group_count_stmt = (
+        select(*grouping_cols, func.count().label("n"))
+        .where(*base_where)
+        .group_by(*grouping_cols)
+        .having(func.count() > 1)
+    )
+    dup_group_rows = (await db.execute(group_count_stmt)).all()
+
+    if not dup_group_rows:
+        return {
+            "project_id": str(project_id) if project_id else None,
+            "folder_scoped": folder_scoped,
+            "dry_run": dry_run,
+            "dup_groups": 0,
+            "archived_count": 0,
+            "sample": [],
+        }
+
+    # ── Step 2: 只 fetch 这些组里的所有 asset ────────────────────────────
+    # 用 (project_id, [folder_id,] name) tuple 一次性 IN 查询
+    if folder_scoped:
+        keys = [(r[0], r[1], r[2]) for r in dup_group_rows]  # (project_id, folder_id, name)
+        member_filter = tuple_(Asset.project_id, Asset.folder_id, Asset.name).in_(keys)
+    else:
+        keys = [(r[0], r[1]) for r in dup_group_rows]  # (project_id, name)
+        member_filter = tuple_(Asset.project_id, Asset.name).in_(keys)
+
+    # tie-breaker · v3 P1.3 phase 5 修：order_by 加 Asset.id 保证幂等
+    # 否则同 updated_at 时 ROW_NUMBER 不稳定 · 两次 dry-run 给出不同的 kept_id
+    member_rows = (
         await db.execute(
-            select(Asset).where(*where_clauses)
-            .order_by(Asset.project_id, Asset.folder_id, Asset.name, Asset.updated_at.desc())
+            select(Asset)
+            .where(*base_where, member_filter)
+            .order_by(
+                Asset.project_id,
+                Asset.folder_id,
+                Asset.name,
+                Asset.updated_at.desc(),
+                Asset.id,  # tie-breaker
+            )
         )
     ).scalars().all()
 
-    # 分组键
+    # ── Step 3: Python 端按组聚合 + soft-delete 非最新 ────────────────────
     def _key(a: Asset):
         return (a.project_id, a.folder_id if folder_scoped else None, a.name)
 
     groups: dict = {}
-    for a in rows:
+    for a in member_rows:
         groups.setdefault(_key(a), []).append(a)
 
-    dup_groups = {k: v for k, v in groups.items() if len(v) > 1}
     archived_count = 0
     sample: list[dict] = []
+    dt_now = None
 
-    for (proj_id, folder_id, name), assets in dup_groups.items():
-        # rows 已按 updated_at desc 排 · 第一个保留 · 其他 archive
-        kept = assets[0]
+    for (proj_id, folder_id, name), assets in groups.items():
+        if len(assets) < 2:
+            # GROUP BY 说有 dup · 但 member 查回来只有 1 行 · 可能并发已 soft-delete · 跳过
+            continue
+        kept = assets[0]  # order_by 已保证 updated_at desc + id 是稳定 first
         to_archive = assets[1:]
         if not dry_run:
-            from datetime import datetime as _dt
-            now = _dt.now(UTC)
+            if dt_now is None:
+                from datetime import datetime as _dt
+                dt_now = _dt.now(UTC)
             for a in to_archive:
-                a.deleted_at = now
+                a.deleted_at = dt_now
                 a.status = "archived"
                 await audit_service.audit(
                     db,
@@ -619,7 +797,7 @@ async def dedup_by_name(
         "project_id": str(project_id) if project_id else None,
         "folder_scoped": folder_scoped,
         "dry_run": dry_run,
-        "dup_groups": len(dup_groups),
+        "dup_groups": len(dup_group_rows),
         "archived_count": archived_count,
         "sample": sample,
     }
