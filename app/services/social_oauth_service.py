@@ -18,7 +18,7 @@ from __future__ import annotations
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Any
 from urllib.parse import urlencode
 
 import httpx
@@ -123,8 +123,8 @@ def build_authorize_url(
     factory_slug: str,
     tenant_id: uuid.UUID,
     project_id: uuid.UUID,
-    initiated_by_user_id: Optional[uuid.UUID] = None,
-    extra_scopes: Optional[list[str]] = None,
+    initiated_by_user_id: uuid.UUID | None = None,
+    extra_scopes: list[str] | None = None,
 ) -> tuple[str, str]:
     """返 (url, state) · state 调用方应该写 Redis with TTL 10min 防 CSRF"""
     cfg = _PLATFORM_CONFIG.get(platform)
@@ -185,7 +185,7 @@ async def exchange_code_for_token(
     *,
     platform: str,
     code: str,
-    code_verifier: Optional[str] = None,
+    code_verifier: str | None = None,
 ) -> dict[str, Any]:
     """callback 收到 code 后调·返 token_payload dict"""
     cfg = _PLATFORM_CONFIG.get(platform)
@@ -221,7 +221,7 @@ async def exchange_code_for_token(
         return resp.json()
 
 
-def parse_expires_at(token_response: dict[str, Any]) -> Optional[datetime]:
+def parse_expires_at(token_response: dict[str, Any]) -> datetime | None:
     """从 token response 解析 expires_at · platform 各家不一"""
     expires_in = token_response.get("expires_in")
     if expires_in:
@@ -244,7 +244,7 @@ async def handle_callback(
     platform: str,
     code: str,
     state: str,
-    code_verifier: Optional[str] = None,
+    code_verifier: str | None = None,
     request=None,
 ) -> dict[str, Any]:
     """callback 端点直接调这个·完成 token 存储

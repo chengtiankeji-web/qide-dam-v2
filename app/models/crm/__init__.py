@@ -7,10 +7,10 @@
   - 严格列定义（防 5/10 那个 setattr 不入库 bug）
 """
 from app.models.crm.account import Account
-from app.models.crm.contact import Contact
-from app.models.crm.lead import Lead
-from app.models.crm.deal import Deal
-from app.models.crm.quote import Quote
 from app.models.crm.activity import CRMActivity
+from app.models.crm.contact import Contact
+from app.models.crm.deal import Deal
+from app.models.crm.lead import Lead
+from app.models.crm.quote import Quote
 
 __all__ = ["Account", "Contact", "Lead", "Deal", "Quote", "CRMActivity"]

@@ -55,24 +55,20 @@ import mimetypes
 import os
 import re
 import shutil
-import stat
 import sys
 import tempfile
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from fnmatch import fnmatch
 from pathlib import Path
-from typing import Optional
 
 try:
+    import tomllib  # noqa: E402  (Python 3.11+ stdlib · 项目要求 3.11+)
+
+    import requests
     from watchdog.events import FileSystemEventHandler
     from watchdog.observers import Observer
-    import requests
-    if sys.version_info >= (3, 11):
-        import tomllib  # noqa
-    else:
-        import tomli as tomllib  # type: ignore
 except ImportError as exc:
     print(f"missing dependency: {exc}\n", file=sys.stderr)
     print("install: pip install --user watchdog requests tomli", file=sys.stderr)
@@ -328,7 +324,7 @@ class Config:
     routes: list[PathRoute]
 
     @classmethod
-    def load_or_init(cls) -> "Config":
+    def load_or_init(cls) -> Config:
         if not CONFIG_FILE.exists():
             CONFIG_DIR.mkdir(parents=True, exist_ok=True)
             CONFIG_FILE.write_text(DEFAULT_CONFIG_TOML)
@@ -455,7 +451,7 @@ class State:
             except Exception as exc:
                 log.warning(f"backup current state failed: {exc}")
 
-    def get(self, sha: str) -> Optional[dict]:
+    def get(self, sha: str) -> dict | None:
         with self.lock:
             return self.data["entries"].get(sha)
 
@@ -571,7 +567,7 @@ class DAMClient:
     def _url(self, path: str) -> str:
         return f"{self.cfg.api_url}{path}"
 
-    def _cache_fresh(self, entry: Optional[tuple[str, float]]) -> Optional[str]:
+    def _cache_fresh(self, entry: tuple[str, float] | None) -> str | None:
         if not entry:
             return None
         val, expires = entry
@@ -579,7 +575,7 @@ class DAMClient:
             return val
         return None
 
-    def resolve_project_id(self, tenant_slug: str, project_slug: str) -> Optional[str]:
+    def resolve_project_id(self, tenant_slug: str, project_slug: str) -> str | None:
         """W15: cached 1h + 404 时 invalidate"""
         cache_key = (tenant_slug, project_slug)
         cached = self._cache_fresh(self._project_id_cache.get(cache_key))
@@ -621,7 +617,7 @@ class DAMClient:
         """W15: slug 改名后调一次 · 强制下次重新拉"""
         self._project_id_cache.pop((tenant_slug, project_slug), None)
 
-    def presign(self, project_id: str, fpath: Path, sha: str, tags: list[str]) -> Optional[dict]:
+    def presign(self, project_id: str, fpath: Path, sha: str, tags: list[str]) -> dict | None:
         """v2.0: presign with dedup_strategy · 返回完整 dict（含 deduplicated 字段）"""
         size = fpath.stat().st_size
         mime = mimetypes.guess_type(fpath.name)[0] or "application/octet-stream"
@@ -702,7 +698,7 @@ class DAMClient:
             log.error(f"confirm exception: {exc}")
             return False
 
-    def patch_asset_folder(self, asset_id: str, folder_id: Optional[str]) -> bool:
+    def patch_asset_folder(self, asset_id: str, folder_id: str | None) -> bool:
         """W12: confirm 后调用 PATCH 设 folder_id"""
         try:
             body = {"folder_id": folder_id}  # None 是合法（移到 root）
@@ -714,7 +710,7 @@ class DAMClient:
 
 
 # ─── 路由 + 过滤 ─────────────────────────────────────────────────
-def should_skip(rel_path: Path, cfg: Config) -> Optional[str]:
+def should_skip(rel_path: Path, cfg: Config) -> str | None:
     """W3 v2.0: 强化 · 路径段 + glob + ext 都校验
     返回 None = 不跳过；否则返回跳过原因字符串
     """
@@ -735,7 +731,7 @@ def should_skip(rel_path: Path, cfg: Config) -> Optional[str]:
     return None
 
 
-def sniff_sensitive_content(fpath: Path) -> Optional[str]:
+def sniff_sensitive_content(fpath: Path) -> str | None:
     """W3 v2.0: 读前 8KB · 命中任一 SENSITIVE_PATTERNS 拒上传"""
     try:
         with fpath.open("rb") as f:
@@ -752,7 +748,7 @@ def sniff_sensitive_content(fpath: Path) -> Optional[str]:
 
 
 def route_for(rel_path: Path, cfg: Config
-              ) -> tuple[Optional[str], Optional[str], list[str], Optional[str]]:
+              ) -> tuple[str | None, str | None, list[str], str | None]:
     """v2.0 W2: 第一条匹配优先 · 返回 (tenant, project, tags, matched_prefix)
     没匹配到时：
       - require_explicit_route=true → 返回 (None, None, [], None) → 调用方走 quarantine
@@ -802,7 +798,7 @@ def sha256_file(fpath: Path) -> str:
     return h.hexdigest()
 
 
-def file_stat_snapshot(fpath: Path) -> Optional[tuple[float, int]]:
+def file_stat_snapshot(fpath: Path) -> tuple[float, int] | None:
     """W4 stability gate: 返回 (mtime, size) 或 None"""
     try:
         st = fpath.stat()
@@ -885,7 +881,6 @@ class Uploader:
             if not asset_id:
                 continue
             # 超 24h 的 pending_confirm 转 done 不再重试（防永久死循环）
-            started = entry.get("started_at", "")
             # 简化：直接重试一次 · backend 现 idempotent
             if self.client.confirm(asset_id):
                 self.state.mark_done(sha, asset_id, entry.get("path", ""))

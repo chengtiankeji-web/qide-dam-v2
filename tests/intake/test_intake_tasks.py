@@ -8,12 +8,10 @@ import pytest
 
 from app.workers.tasks_intake import (
     IMAGE_EXTS,
-    VIDEO_EXTS,
     _extract_sku_slug,
     _kind_from_ext,
     _rule_classify,
 )
-
 
 # ════════════════════════════════════════════════════════════
 # kind from ext

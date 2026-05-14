@@ -18,9 +18,9 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import Principal
@@ -29,7 +29,6 @@ from app.mcp.server import _resolve_principal, mcp
 from app.models.crm.deal import Deal
 from app.models.crm.lead import Lead
 from app.models.user import User
-
 
 # ════════════════════════════════════════════════════════════
 # 工具 helpers
@@ -101,9 +100,9 @@ def _lead_full(lead: Lead) -> dict[str, Any]:
 
 @mcp.tool()
 async def list_leads(
-    factory_slug: Optional[str] = None,
-    classification: Optional[str] = None,
-    status: Optional[str] = None,
+    factory_slug: str | None = None,
+    classification: str | None = None,
+    status: str | None = None,
     limit: int = 50,
 ) -> dict[str, Any]:
     """List leads (inquiries) in tenant. Returns summary fields, not full inquiry text.
@@ -177,11 +176,11 @@ async def create_lead(
     factory_slug: str,
     source: str,
     inquiry_text: str,
-    contact_name: Optional[str] = None,
-    contact_email: Optional[str] = None,
-    contact_phone: Optional[str] = None,
-    contact_country: Optional[str] = None,
-    contact_company: Optional[str] = None,
+    contact_name: str | None = None,
+    contact_email: str | None = None,
+    contact_phone: str | None = None,
+    contact_country: str | None = None,
+    contact_company: str | None = None,
 ) -> dict[str, Any]:
     """Create a lead (inquiry) and run the 6-factor classification algorithm.
 
@@ -227,8 +226,7 @@ async def search_leads(
     """
     if not query or len(query) < 2:
         raise ValueError("query min 2 chars")
-    if limit > 100:
-        limit = 100
+    limit = min(limit, 100)
     async with AsyncSessionLocal() as db:
         api_key = await _resolve_principal(db)
         pattern = f"%{query}%"
@@ -260,7 +258,7 @@ async def search_leads(
 async def transition_lead(
     lead_id: str,
     new_status: str,
-    reason: Optional[str] = None,
+    reason: str | None = None,
 ) -> dict[str, Any]:
     """Move a lead through its workflow status.
 
@@ -301,7 +299,7 @@ async def transition_lead(
 
 @mcp.tool()
 async def get_pipeline_forecast(
-    factory_slug: Optional[str] = None,
+    factory_slug: str | None = None,
     days_ahead: int = 30,
 ) -> dict[str, Any]:
     """Forecast pipeline: open deals × stage probability × estimated value.

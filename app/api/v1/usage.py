@@ -50,16 +50,23 @@ async def get_live_summary(
 ) -> LiveSummaryOut:
     """v3 P1.3 #4 (2026-05-13 深夜) · Dashboard 实时计数 · 不依赖 usage_meters · 直接 assets 表 SQL aggregate"""
     if project_id and not p.can_access_project(project_id):
-        from fastapi import HTTPException, status as _s
+        from fastapi import HTTPException
+        from fastapi import status as _s
         raise HTTPException(_s.HTTP_403_FORBIDDEN, "no access")
 
     # platform_admin 选了 project 跨租户的 · effective tenant 从 project 反查
+    # v3 P1.3 phase 5 (2026-05-14): 之前 project_id 不存在时静默 fallback p.tenant_id ·
+    # 用户以为看的是别人租户其实是自己 · admin SPA 切租户 Dashboard 数字乱跳。
+    # 现在：project 不存在直接 404。
     effective_tid = p.tenant_id
     if project_id and p.is_platform_admin:
         from app.models.project import Project as _P
         proj = (await db.execute(select(_P).where(_P.id == project_id))).scalar_one_or_none()
-        if proj:
-            effective_tid = proj.tenant_id
+        if not proj:
+            from fastapi import HTTPException
+            from fastapi import status as _s
+            raise HTTPException(_s.HTTP_404_NOT_FOUND, f"project {project_id} not found")
+        effective_tid = proj.tenant_id
 
     base_filters = [Asset.tenant_id == effective_tid]
     if project_id:

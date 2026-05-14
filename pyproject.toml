@@ -104,3 +104,13 @@ ignore = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.ruff.lint.per-file-ignores]
+# N814: `Project as _P` / `Asset as _A` 短别名是有意为之·提升内嵌查询可读性
+"app/api/v1/assets.py" = ["N814"]
+"app/api/v1/usage.py" = ["N814"]
+"app/api/v1/wecom.py" = ["N814", "E402"]
+# E402: image_transform_service.py 后半部分是 phase B 懒加载模块·intentional
+"app/services/image_transform_service.py" = ["E402"]
+# B017: 加密 InvalidTag 在不同 backend 抛不同 Exception·pytest.raises(Exception) intentional
+"tests/test_v3_security.py" = ["B017"]

@@ -30,7 +30,7 @@ class ShareLinkCreate(BaseModel):
     note: str | None = None
 
     @model_validator(mode="after")
-    def _materialize_expires(self) -> "ShareLinkCreate":
+    def _materialize_expires(self) -> ShareLinkCreate:
         if self.expires_at is None and self.expires_in is not None:
             object.__setattr__(
                 self,

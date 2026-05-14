@@ -2,15 +2,19 @@
 from __future__ import annotations
 
 import uuid
-from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status as http_status
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import Principal, get_current_principal
 from app.db.session import get_db
 from app.schemas.crm.deal import (
-    DealCreate, DealOut, DealListOut, DealStageTransitionIn, PipelineForecastOut,
+    DealCreate,
+    DealListOut,
+    DealOut,
+    DealStageTransitionIn,
+    PipelineForecastOut,
 )
 from app.services.crm import deals_service
 
@@ -44,10 +48,10 @@ async def create_deal(
 
 @router.get("", response_model=DealListOut)
 async def list_deals(
-    factory_slug: Optional[str] = Query(None),
-    stage: Optional[str] = Query(None),
-    owner_user_id: Optional[uuid.UUID] = Query(None),
-    account_id: Optional[uuid.UUID] = Query(None),
+    factory_slug: str | None = Query(None),
+    stage: str | None = Query(None),
+    owner_user_id: uuid.UUID | None = Query(None),
+    account_id: uuid.UUID | None = Query(None),
     limit: int = Query(50, le=200),
     offset: int = Query(0, ge=0),
     principal: Principal = Depends(get_current_principal),
@@ -110,8 +114,8 @@ async def transition_stage(
 
 @router.get("/forecast/pipeline", response_model=PipelineForecastOut)
 async def get_pipeline_forecast(
-    factory_slug: Optional[str] = Query(None),
-    owner_user_id: Optional[uuid.UUID] = Query(None),
+    factory_slug: str | None = Query(None),
+    owner_user_id: uuid.UUID | None = Query(None),
     principal: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> PipelineForecastOut:

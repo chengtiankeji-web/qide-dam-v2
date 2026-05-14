@@ -17,7 +17,14 @@
 from fastapi import APIRouter
 
 from app.api.v1.crm import (
-    accounts, activities, contacts, dashboard, deals, emails, leads, quotes,
+    accounts,
+    activities,
+    contacts,
+    dashboard,
+    deals,
+    emails,
+    leads,
+    quotes,
 )
 
 crm_router = APIRouter()

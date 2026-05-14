@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status as http_status
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import status as http_status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,16 +24,16 @@ class ActivityCreate(BaseModel):
     )
     entity_type: str = Field(..., pattern="^(lead|contact|account|deal|quote)$")
     entity_id: uuid.UUID
-    subject: Optional[str] = Field(None, max_length=512)
-    description: Optional[str] = None
-    duration_minutes: Optional[int] = Field(None, ge=0)
-    meeting_location: Optional[str] = Field(None, max_length=256)
-    meeting_attendees: Optional[list[str]] = None
-    meeting_outcome: Optional[str] = None
-    task_due_at: Optional[datetime] = None
-    task_priority: Optional[str] = Field(None, pattern="^(low|medium|high|urgent)$")
-    metadata: Optional[dict] = None
-    attachments: Optional[list[dict]] = None
+    subject: str | None = Field(None, max_length=512)
+    description: str | None = None
+    duration_minutes: int | None = Field(None, ge=0)
+    meeting_location: str | None = Field(None, max_length=256)
+    meeting_attendees: list[str] | None = None
+    meeting_outcome: str | None = None
+    task_due_at: datetime | None = None
+    task_priority: str | None = Field(None, pattern="^(low|medium|high|urgent)$")
+    metadata: dict | None = None
+    attachments: list[dict] | None = None
 
 
 class ActivityOut(BaseModel):
@@ -45,26 +45,26 @@ class ActivityOut(BaseModel):
     activity_type: str
     entity_type: str
     entity_id: uuid.UUID
-    subject: Optional[str]
-    description: Optional[str]
+    subject: str | None
+    description: str | None
     performed_at: datetime
-    performed_by_user_id: Optional[uuid.UUID]
-    duration_minutes: Optional[int]
-    email_message_id: Optional[str]
-    email_from: Optional[str]
-    email_to: Optional[list[str]]
-    email_subject: Optional[str]
-    email_body_preview: Optional[str]
-    email_opened_at: Optional[datetime]
-    email_clicked_at: Optional[datetime]
-    meeting_location: Optional[str]
-    meeting_attendees: Optional[list[str]]
-    meeting_outcome: Optional[str]
-    task_due_at: Optional[datetime]
-    task_completed_at: Optional[datetime]
-    task_priority: Optional[str]
-    metadata: Optional[dict] = Field(None, alias="extra_metadata")
-    attachments: Optional[list[dict]]
+    performed_by_user_id: uuid.UUID | None
+    duration_minutes: int | None
+    email_message_id: str | None
+    email_from: str | None
+    email_to: list[str] | None
+    email_subject: str | None
+    email_body_preview: str | None
+    email_opened_at: datetime | None
+    email_clicked_at: datetime | None
+    meeting_location: str | None
+    meeting_attendees: list[str] | None
+    meeting_outcome: str | None
+    task_due_at: datetime | None
+    task_completed_at: datetime | None
+    task_priority: str | None
+    metadata: dict | None = Field(None, alias="extra_metadata")
+    attachments: list[dict] | None
     created_at: datetime
 
 
@@ -105,10 +105,10 @@ async def create_activity(
 
 @router.get("", response_model=ActivityListOut)
 async def list_activities(
-    entity_type: Optional[str] = Query(None, pattern="^(lead|contact|account|deal|quote)$"),
-    entity_id: Optional[uuid.UUID] = Query(None),
-    activity_type: Optional[str] = Query(None),
-    performed_by_user_id: Optional[uuid.UUID] = Query(None),
+    entity_type: str | None = Query(None, pattern="^(lead|contact|account|deal|quote)$"),
+    entity_id: uuid.UUID | None = Query(None),
+    activity_type: str | None = Query(None),
+    performed_by_user_id: uuid.UUID | None = Query(None),
     limit: int = Query(100, le=500),
     offset: int = Query(0, ge=0),
     principal: Principal = Depends(get_current_principal),
@@ -146,7 +146,7 @@ async def complete_task(
 
 @router.get("/overdue-tasks", response_model=ActivityListOut)
 async def get_overdue_tasks(
-    user_id: Optional[uuid.UUID] = Query(None),
+    user_id: uuid.UUID | None = Query(None),
     principal: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> ActivityListOut:

@@ -4,7 +4,6 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from typing import Optional
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -48,14 +47,14 @@ async def create_deal(
     tenant_id: uuid.UUID,
     factory_slug: str,
     name: str,
-    account_id: Optional[uuid.UUID] = None,
-    primary_contact_id: Optional[uuid.UUID] = None,
-    lead_id: Optional[uuid.UUID] = None,
-    estimated_value_usd: Optional[Decimal] = None,
+    account_id: uuid.UUID | None = None,
+    primary_contact_id: uuid.UUID | None = None,
+    lead_id: uuid.UUID | None = None,
+    estimated_value_usd: Decimal | None = None,
     probability_pct: int = 10,
-    expected_close_date: Optional[date] = None,
-    related_sku_slugs: Optional[list[str]] = None,
-    owner_user_id: Optional[uuid.UUID] = None,
+    expected_close_date: date | None = None,
+    related_sku_slugs: list[str] | None = None,
+    owner_user_id: uuid.UUID | None = None,
 ) -> Deal:
     """创建商机·默认 stage=prospect"""
     deal = Deal(
@@ -99,9 +98,9 @@ async def transition_stage(
     principal: Principal,
     deal_id: uuid.UUID,
     new_stage: str,
-    won_value_usd: Optional[Decimal] = None,
-    lost_reason: Optional[str] = None,
-    lost_competitor: Optional[str] = None,
+    won_value_usd: Decimal | None = None,
+    lost_reason: str | None = None,
+    lost_competitor: str | None = None,
 ) -> Deal:
     """商机 pipeline 状态机·只允许合法转换"""
     deal = await db.get(Deal, deal_id)
@@ -165,10 +164,10 @@ async def list_deals(
     *,
     principal: Principal,
     tenant_id: uuid.UUID,
-    factory_slug: Optional[str] = None,
-    stage: Optional[str] = None,
-    owner_user_id: Optional[uuid.UUID] = None,
-    account_id: Optional[uuid.UUID] = None,
+    factory_slug: str | None = None,
+    stage: str | None = None,
+    owner_user_id: uuid.UUID | None = None,
+    account_id: uuid.UUID | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[Deal]:
@@ -189,8 +188,8 @@ async def get_pipeline_forecast(
     db: AsyncSession,
     *,
     tenant_id: uuid.UUID,
-    factory_slug: Optional[str] = None,
-    owner_user_id: Optional[uuid.UUID] = None,
+    factory_slug: str | None = None,
+    owner_user_id: uuid.UUID | None = None,
 ) -> dict:
     """漏斗 forecast·按 stage 聚合金额"""
     open_stages = ("prospect", "qualified", "proposal", "negotiation", "on_hold")

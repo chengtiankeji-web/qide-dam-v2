@@ -5,12 +5,9 @@ import hashlib
 import hmac
 import time
 
-import pytest
-
 from app.services import ai_service
 from app.services.search_service import _vec_literal
 from app.workers.tasks_webhook import _sign
-
 
 # ----- Sprint 3: AI service stub mode -----
 

@@ -119,6 +119,18 @@ def upgrade() -> None:
     # 列名严格匹配 app/models/audit.py：tenant_id / project_id / actor_user_id
     # / actor_kind / action / target_kind / target_id / status / purpose / ip
     # / user_agent / metadata（实际 DB 列名 metadata · ORM attr extra_metadata）
+    #
+    # ⚠️ 关于 NOW() 的事务语义（v3 P1.3 phase 5 doc fix · 2026-05-14）：
+    # alembic 默认在事务内跑 upgrade()，PG 里 NOW() 在事务中**永远返回 tx-start 时间**·
+    # 所以 step 2 写的 deleted_at = NOW() 和此处 NOW() - INTERVAL '1 minute' 都基于同一
+    # tx-start。这次能 work 是因为：
+    #   step 2 写的 deleted_at = tx_start
+    #   step 4 过滤 deleted_at > tx_start - 1min → tx_start > tx_start - 1min = TRUE ✅
+    # 但如果**未来有人**把 step 4 移到 autocommit_block 外 / 单独 statement 跑 ·
+    # 或者把整个 migration 改成 op.execute_with_autocommit_block · 这个过滤就会
+    # 在新事务里取新的 NOW() · 现存"几分钟前归档的行" deleted_at 可能 < 新 NOW() - 1min ·
+    # 漏审计。如要重构成 autocommit 模式 · 必须改为按 r.rn > 1 + status='archived' 单独
+    # JOIN ranked CTE · 不要依赖时间窗口。
     op.execute(
         """
         INSERT INTO audit_events (

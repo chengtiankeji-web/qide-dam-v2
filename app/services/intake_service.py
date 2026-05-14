@@ -26,8 +26,6 @@ import hashlib
 import os
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Optional
 
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -127,7 +125,7 @@ async def create_job(
     project_id: uuid.UUID,
     factory_slug: str,
     source_path: str,
-    options: Optional[dict] = None,
+    options: dict | None = None,
     request=None,
 ) -> IntakeJob:
     """创建 job · 校验路径 · 估算成本 · 入库
@@ -204,7 +202,7 @@ def _quick_count(root: str) -> tuple[int, int, int]:
     total = 0
     images = 0
     docs = 0
-    for dirpath, _, filenames in os.walk(root):
+    for _dirpath, _, filenames in os.walk(root):
         for fn in filenames:
             if fn.startswith(".") or fn == "Thumbs.db":
                 continue
@@ -247,8 +245,8 @@ async def transition_status(
     *,
     job: IntakeJob,
     new_status: str,
-    principal: Optional[Principal] = None,
-    reason: Optional[str] = None,
+    principal: Principal | None = None,
+    reason: str | None = None,
     request=None,
 ) -> IntakeJob:
     """合法状态机切换 · 写时间戳 · 写 audit"""
@@ -324,9 +322,9 @@ async def list_jobs(
     db: AsyncSession,
     *,
     tenant_id: uuid.UUID,
-    project_id: Optional[uuid.UUID] = None,
-    factory_slug: Optional[str] = None,
-    status: Optional[str] = None,
+    project_id: uuid.UUID | None = None,
+    factory_slug: str | None = None,
+    status: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[IntakeJob]:
@@ -349,7 +347,7 @@ async def get_job(
     tenant_id: uuid.UUID,
     job_id: uuid.UUID,
     eager_clusters: bool = False,
-) -> Optional[IntakeJob]:
+) -> IntakeJob | None:
     q = select(IntakeJob).where(
         IntakeJob.id == job_id,
         IntakeJob.tenant_id == tenant_id,
@@ -364,8 +362,8 @@ async def list_items(
     db: AsyncSession,
     *,
     job_id: uuid.UUID,
-    category: Optional[str] = None,
-    sku_slug: Optional[str] = None,
+    category: str | None = None,
+    sku_slug: str | None = None,
     flagged_only: bool = False,
     limit: int = 200,
     offset: int = 0,
@@ -393,7 +391,7 @@ async def approve_item(
     *,
     principal: Principal,
     item: IntakeItem,
-    override: Optional[dict] = None,
+    override: dict | None = None,
     request=None,
 ) -> IntakeItem:
     """逐文件 approve · override 可改 subdir / filename / tags"""
@@ -432,7 +430,7 @@ async def reject_item(
     db: AsyncSession,
     *,
     item: IntakeItem,
-    reason: Optional[str] = None,
+    reason: str | None = None,
 ) -> IntakeItem:
     item.user_decision = "reject"
     item.user_decision_at = datetime.now(timezone.utc)

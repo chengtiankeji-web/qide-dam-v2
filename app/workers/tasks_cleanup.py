@@ -96,8 +96,8 @@ async def _reap_stale_uploads(older_than_hours: int) -> dict:
     from app.db.session import get_session_factory
     from app.models.asset import Asset
     from app.services import audit_service, storage
-    from app.services.audit_service import AuditAction
     from app.services.asset_service import confirm_upload, hard_delete_asset
+    from app.services.audit_service import AuditAction
 
     cutoff = datetime.now(UTC) - timedelta(hours=older_than_hours)
     session_factory = get_session_factory()
@@ -313,7 +313,7 @@ async def _retry_r2_orphans() -> dict:
                 await audit_service.audit(
                     db,
                     action=AuditAction.R2_ORPHAN_RESOLVED,
-                    tenant_id=orphan.tenant_id or _DEFAULT_TENANT_FALLBACK(),
+                    tenant_id=orphan.tenant_id or _default_tenant_fallback(),
                     project_id=orphan.project_id,
                     actor_user_id=None,
                     actor_kind="system",
@@ -345,7 +345,7 @@ async def _retry_r2_orphans() -> dict:
     return {"resolved": resolved, "re_failed": re_failed, "given_up": given_up}
 
 
-def _DEFAULT_TENANT_FALLBACK():
+def _default_tenant_fallback():
     """orphan.tenant_id 可能为 None (历史失败行) · audit 又强制 tenant_id 非空 ·
     fallback 到 qide tenant_id（platform 默认）。这种情况罕见 · 仅救灾用。"""
     import os

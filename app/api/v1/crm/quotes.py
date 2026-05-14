@@ -2,16 +2,21 @@
 from __future__ import annotations
 
 import uuid
-from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status as http_status
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import Principal, get_current_principal
 from app.db.session import get_db
 from app.schemas.crm.quote import (
-    QuoteCreate, QuoteOut, QuoteListOut, QuoteUpdate,
-    QuoteStatusTransitionIn, QuoteSendIn, QuotePdfOut,
+    QuoteCreate,
+    QuoteListOut,
+    QuoteOut,
+    QuotePdfOut,
+    QuoteSendIn,
+    QuoteStatusTransitionIn,
+    QuoteUpdate,
 )
 from app.services.crm import quotes_service
 
@@ -51,9 +56,9 @@ async def create_quote(
 
 @router.get("", response_model=QuoteListOut)
 async def list_quotes(
-    deal_id: Optional[uuid.UUID] = Query(None),
-    account_id: Optional[uuid.UUID] = Query(None),
-    status: Optional[str] = Query(None),
+    deal_id: uuid.UUID | None = Query(None),
+    account_id: uuid.UUID | None = Query(None),
+    status: str | None = Query(None),
     limit: int = Query(50, le=200),
     offset: int = Query(0, ge=0),
     principal: Principal = Depends(get_current_principal),

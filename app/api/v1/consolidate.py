@@ -19,7 +19,6 @@
 """
 from __future__ import annotations
 
-import hashlib
 import uuid
 from typing import Literal
 
@@ -31,7 +30,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.deps import Principal, get_current_principal
 from app.db.session import get_db
 from app.models.asset import Asset
-from app.schemas.asset import PresignedUploadIn
 from app.services import ai_service, asset_service, audit_service, storage
 from app.services.audit_service import AuditAction
 
@@ -116,10 +114,24 @@ class ConsolidateApplyIn(BaseModel):
     archive_source_ids: list[uuid.UUID] | None = None
 
 
+class ArchiveFailure(BaseModel):
+    asset_id: uuid.UUID
+    error: str
+
+
 class ConsolidateApplyOut(BaseModel):
     new_asset_id: uuid.UUID
     new_asset_name: str
-    archived_count: int
+    deduplicated: bool = False  # True 时 new_asset_id 是既有 asset
+    # v3 P1.3 phase 2 (2026-05-14): archive 改结构化结果 · 不再静默吞错
+    archive_requested: int = 0
+    archive_succeeded: int = 0
+    archive_failed: list[ArchiveFailure] = []
+
+    @property
+    def archived_count(self) -> int:
+        """legacy 兼容字段 · 等于 archive_succeeded"""
+        return self.archive_succeeded
 
 
 async def _list_scope_assets(
@@ -292,44 +304,37 @@ async def consolidate_apply(
     p: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> ConsolidateApplyOut:
-    """v3 P1.3 #5 · 应用消化结果 · 上传 memory.md + 可选 archive 源文件"""
+    """v3 P1.3 #5 · 应用消化结果 · 上传 memory.md + 可选 archive 源文件
+
+    v3 P1.3 phase 2 重构 (2026-05-14):
+      - 上传走 asset_service.upload_inline_content() 原子 helper · PUT 失败自动清孤儿
+      - archive_source_ids 失败结构化返回（archive_failed list）· 不再静默吞错
+    """
     if not p.can_access_project(payload.project_id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "no access")
 
-    # 1. 上传 content 为新 memory asset
+    # 1. 原子上传：register + PUT + confirm + 失败清理 一气呵成
     content_bytes = payload.content.encode("utf-8")
-    sha = hashlib.sha256(content_bytes).hexdigest()
+    try:
+        asset, deduplicated = await asset_service.upload_inline_content(
+            db,
+            tenant_id=p.tenant_id,
+            project_id=payload.project_id,
+            filename=payload.memory_filename,
+            content=content_bytes,
+            mime_type="text/markdown",
+            manual_tags=["memory", "consolidated", "auto-generated"],
+            acl="project",
+            dedup_strategy="link",
+        )
+    except asset_service.InlineUploadError as exc:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            f"memory upload failed (孤儿已清): {exc}",
+        ) from exc
 
-    new_asset_payload = PresignedUploadIn(
-        project_id=payload.project_id,
-        filename=payload.memory_filename,
-        mime_type="text/markdown",
-        size_bytes=len(content_bytes),
-        sha256=sha,
-        acl="project",
-        manual_tags=["memory", "consolidated", "auto-generated"],
-    )
-    asset, upload_url, headers, deduplicated = await asset_service.register_presigned_upload(
-        db,
-        tenant_id=p.tenant_id,
-        payload=new_asset_payload,
-        dedup_strategy="link",  # 同 sha 已存在就直接 link · 不重复
-    )
-
-    # 如果没 dedup · 直接 PUT 内容到 R2 + confirm
-    if not deduplicated and upload_url:
-        import requests as _req
-        put = _req.put(upload_url, data=content_bytes,
-                       headers={"Content-Type": "text/markdown", **(headers or {})},
-                       timeout=30)
-        if put.status_code not in (200, 201, 204):
-            raise HTTPException(
-                status.HTTP_502_BAD_GATEWAY,
-                f"R2 PUT failed: HTTP {put.status_code}",
-            )
-        await asset_service.confirm_upload(db, tenant_id=p.tenant_id, asset_id=asset.id)
-
-    # 2. archive sources
+    # 2. archive sources · 失败结构化记录 · 不静默吞
+    archive_failed: list[ArchiveFailure] = []
     archived = 0
     if payload.archive_source_ids:
         for sid in payload.archive_source_ids:
@@ -338,8 +343,8 @@ async def consolidate_apply(
                     db, tenant_id=p.tenant_id, asset_id=sid
                 )
                 archived += 1
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as exc:  # noqa: BLE001
+                archive_failed.append(ArchiveFailure(asset_id=sid, error=str(exc)))
 
     # 3. audit
     await audit_service.audit(
@@ -355,7 +360,11 @@ async def consolidate_apply(
         metadata={
             "operation": "consolidate_apply",
             "memory_filename": payload.memory_filename,
-            "archived_source_count": archived,
+            "deduplicated": deduplicated,
+            "archive_requested": len(payload.archive_source_ids or []),
+            "archive_succeeded": archived,
+            "archive_failed_count": len(archive_failed),
+            "archive_failed_ids": [str(f.asset_id) for f in archive_failed],
             "content_bytes": len(content_bytes),
         },
     )
@@ -364,5 +373,8 @@ async def consolidate_apply(
     return ConsolidateApplyOut(
         new_asset_id=asset.id,
         new_asset_name=asset.name,
-        archived_count=archived,
+        deduplicated=deduplicated,
+        archive_requested=len(payload.archive_source_ids or []),
+        archive_succeeded=archived,
+        archive_failed=archive_failed,
     )

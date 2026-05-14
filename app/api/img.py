@@ -16,12 +16,10 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import Principal, get_current_principal
@@ -108,7 +106,7 @@ async def transform_image(
     asset_id: uuid.UUID,
     transforms: str,
     ext: str,
-    token: Optional[str] = Query(None),
+    token: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
     """主入口·解析 + 缓存查 + 派生 + 返"""

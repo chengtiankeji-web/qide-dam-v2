@@ -14,19 +14,20 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
 
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import Principal
 from app.core.logging import get_logger
-from app.models.crm.lead import Lead
 from app.models.crm.deal import Deal
+from app.models.crm.lead import Lead
 from app.services import audit_service
 from app.services.audit_service import AuditAction
 from app.services.crm.classification import (
     ClassificationInput,
+)
+from app.services.crm.classification import (
     classify_lead as classify_algorithm,
 )
 
@@ -45,23 +46,23 @@ async def create_lead(
     factory_slug: str,
     source: str,
     inquiry_text: str,
-    contact_name: Optional[str] = None,
-    contact_email: Optional[str] = None,
-    contact_phone: Optional[str] = None,
-    contact_company: Optional[str] = None,
-    contact_country: Optional[str] = None,
-    contact_role: Optional[str] = None,
-    inquiry_attachments: Optional[list[dict]] = None,
-    inquiry_language: Optional[str] = None,
+    contact_name: str | None = None,
+    contact_email: str | None = None,
+    contact_phone: str | None = None,
+    contact_company: str | None = None,
+    contact_country: str | None = None,
+    contact_role: str | None = None,
+    inquiry_attachments: list[dict] | None = None,
+    inquiry_language: str | None = None,
     # 来源关联（可选）
-    source_inbox_id: Optional[uuid.UUID] = None,
-    source_share_link_id: Optional[uuid.UUID] = None,
-    source_campaign: Optional[str] = None,
-    source_url: Optional[str] = None,
+    source_inbox_id: uuid.UUID | None = None,
+    source_share_link_id: uuid.UUID | None = None,
+    source_campaign: str | None = None,
+    source_url: str | None = None,
     # 关联（可选）
-    contact_id: Optional[uuid.UUID] = None,
-    account_id: Optional[uuid.UUID] = None,
-    project_id: Optional[uuid.UUID] = None,
+    contact_id: uuid.UUID | None = None,
+    account_id: uuid.UUID | None = None,
+    project_id: uuid.UUID | None = None,
 ) -> Lead:
     """创建新询盘 + 自动跑 6 要素分级 + 写 audit"""
     # 1. 跑分类算法
@@ -286,9 +287,9 @@ async def transition_status(
     principal: Principal,
     lead_id: uuid.UUID,
     new_status: str,
-    note: Optional[str] = None,
-    lost_reason: Optional[str] = None,
-    lost_competitor: Optional[str] = None,
+    note: str | None = None,
+    lost_reason: str | None = None,
+    lost_competitor: str | None = None,
 ) -> Lead:
     """状态机·校验合法转换 + 写 audit"""
     lead = await db.get(Lead, lead_id)
@@ -350,10 +351,10 @@ async def convert_to_deal(
     principal: Principal,
     lead_id: uuid.UUID,
     deal_name: str,
-    estimated_value_usd: Optional[float] = None,
+    estimated_value_usd: float | None = None,
     probability_pct: int = 50,
-    expected_close_date: Optional[str] = None,
-    related_sku_slugs: Optional[list[str]] = None,
+    expected_close_date: str | None = None,
+    related_sku_slugs: list[str] | None = None,
 ) -> tuple[Lead, Deal]:
     """qualified lead → deal·创建 deal + 改 lead.status='converted'"""
     lead = await db.get(Lead, lead_id)
@@ -427,11 +428,11 @@ async def list_leads(
     *,
     principal: Principal,
     tenant_id: uuid.UUID,
-    factory_slug: Optional[str] = None,
-    classification: Optional[str] = None,
-    status: Optional[str] = None,
-    assigned_user_id: Optional[uuid.UUID] = None,
-    source: Optional[str] = None,
+    factory_slug: str | None = None,
+    classification: str | None = None,
+    status: str | None = None,
+    assigned_user_id: uuid.UUID | None = None,
+    source: str | None = None,
     limit: int = 50,
     offset: int = 0,
     order_by: str = "created_at_desc",

@@ -15,20 +15,30 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
-    String, Text, Boolean, Integer, BigInteger, Float, DateTime, Numeric,
-    ForeignKey, CheckConstraint, UniqueConstraint, Index, text,
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
 )
-from sqlalchemy.dialects.postgresql import UUID, JSONB, ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 
 if TYPE_CHECKING:
-    from app.models.user import User
-    from app.models.asset import Asset
+    pass
 
 
 # ════════════════════════════════════════════════════════
@@ -62,7 +72,7 @@ class IntakeJob(Base):
     status: Mapped[str] = mapped_column(
         String(32), nullable=False, server_default="scanning", index=True,
     )
-    created_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
         index=True,
@@ -85,9 +95,9 @@ class IntakeJob(Base):
     llm_tokens_output: Mapped[int] = mapped_column(Integer, server_default="0")
 
     # 输出
-    entity_yml: Mapped[Optional[dict]] = mapped_column(JSONB)
-    manifest_storage_key: Mapped[Optional[str]] = mapped_column(Text)
-    options: Mapped[Optional[dict]] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    entity_yml: Mapped[dict | None] = mapped_column(JSONB)
+    manifest_storage_key: Mapped[str | None] = mapped_column(Text)
+    options: Mapped[dict | None] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
 
     # 时间
     created_at: Mapped[datetime] = mapped_column(
@@ -96,22 +106,22 @@ class IntakeJob(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()"),
     )
-    scan_completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    review_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    approved_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    scan_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    review_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    approved_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"),
     )
-    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    failed_reason: Mapped[Optional[str]] = mapped_column(Text)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    failed_reason: Mapped[str | None] = mapped_column(Text)
 
     # 关系
-    items: Mapped[list["IntakeItem"]] = relationship(
+    items: Mapped[list[IntakeItem]] = relationship(
         "IntakeItem", back_populates="job",
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
-    clusters: Mapped[list["IntakeCluster"]] = relationship(
+    clusters: Mapped[list[IntakeCluster]] = relationship(
         "IntakeCluster", back_populates="job",
         cascade="all, delete-orphan",
         passive_deletes=True,
@@ -155,49 +165,49 @@ class IntakeItem(Base):
     filename: Mapped[str] = mapped_column(String(512), nullable=False)
     size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
     sha256: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    mime_type: Mapped[Optional[str]] = mapped_column(String(128))
-    kind: Mapped[Optional[str]] = mapped_column(String(16))
+    mime_type: Mapped[str | None] = mapped_column(String(128))
+    kind: Mapped[str | None] = mapped_column(String(16))
 
     # LLM 输出（分类）
-    predicted_category: Mapped[Optional[str]] = mapped_column(String(64))
-    predicted_sku_slug: Mapped[Optional[str]] = mapped_column(String(128), index=True)
-    predicted_subdir: Mapped[Optional[str]] = mapped_column(String(512))
-    predicted_target_filename: Mapped[Optional[str]] = mapped_column(String(512))
-    predicted_tags: Mapped[Optional[list[str]]] = mapped_column(ARRAY(String(128)))
+    predicted_category: Mapped[str | None] = mapped_column(String(64))
+    predicted_sku_slug: Mapped[str | None] = mapped_column(String(128), index=True)
+    predicted_subdir: Mapped[str | None] = mapped_column(String(512))
+    predicted_target_filename: Mapped[str | None] = mapped_column(String(512))
+    predicted_tags: Mapped[list[str] | None] = mapped_column(ARRAY(String(128)))
     confidence: Mapped[float] = mapped_column(Float, server_default="0")
-    flagged_reason: Mapped[Optional[str]] = mapped_column(String(256))
+    flagged_reason: Mapped[str | None] = mapped_column(String(256))
 
     # SKU 聚类
-    cluster_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    cluster_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("intake_clusters.id", ondelete="SET NULL"),
     )
 
     # 视觉增强
     visual_verified: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
-    visual_dominant_colors: Mapped[Optional[dict]] = mapped_column(JSONB)
+    visual_dominant_colors: Mapped[dict | None] = mapped_column(JSONB)
 
     # 用户决策
-    user_decision: Mapped[Optional[str]] = mapped_column(String(16))
-    user_override: Mapped[Optional[dict]] = mapped_column(JSONB)
-    user_decision_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    user_decision: Mapped[str | None] = mapped_column(String(16))
+    user_override: Mapped[dict | None] = mapped_column(JSONB)
+    user_decision_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # push 结果
-    pushed_asset_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    pushed_asset_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("assets.id", ondelete="SET NULL"),
         index=True,
     )
-    push_error: Mapped[Optional[str]] = mapped_column(Text)
-    pushed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    push_error: Mapped[str | None] = mapped_column(Text)
+    pushed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("now()"),
     )
 
     # 关系
-    job: Mapped["IntakeJob"] = relationship("IntakeJob", back_populates="items")
-    cluster: Mapped[Optional["IntakeCluster"]] = relationship(
+    job: Mapped[IntakeJob] = relationship("IntakeJob", back_populates="items")
+    cluster: Mapped[IntakeCluster | None] = relationship(
         "IntakeCluster", back_populates="items", foreign_keys=[cluster_id],
     )
 
@@ -236,27 +246,27 @@ class IntakeCluster(Base):
     )
 
     sku_slug: Mapped[str] = mapped_column(String(128), nullable=False)
-    sku_name_cn: Mapped[Optional[str]] = mapped_column(String(256))
-    sku_name_en: Mapped[Optional[str]] = mapped_column(String(256))
-    subcategory: Mapped[Optional[str]] = mapped_column(String(64))
+    sku_name_cn: Mapped[str | None] = mapped_column(String(256))
+    sku_name_en: Mapped[str | None] = mapped_column(String(256))
+    subcategory: Mapped[str | None] = mapped_column(String(64))
 
     item_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
-    representative_item_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    representative_item_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("intake_items.id", ondelete="SET NULL"),
     )
-    category_breakdown: Mapped[Optional[dict]] = mapped_column(JSONB)
+    category_breakdown: Mapped[dict | None] = mapped_column(JSONB)
 
     user_confirmed: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
-    user_renamed_slug: Mapped[Optional[str]] = mapped_column(String(128))
+    user_renamed_slug: Mapped[str | None] = mapped_column(String(128))
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("now()"),
     )
 
     # 关系
-    job: Mapped["IntakeJob"] = relationship("IntakeJob", back_populates="clusters")
-    items: Mapped[list["IntakeItem"]] = relationship(
+    job: Mapped[IntakeJob] = relationship("IntakeJob", back_populates="clusters")
+    items: Mapped[list[IntakeItem]] = relationship(
         "IntakeItem", back_populates="cluster",
         foreign_keys="IntakeItem.cluster_id",
     )

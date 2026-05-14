@@ -6,10 +6,9 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
-
 
 # ════════════════════════════════════════════════════════════
 # Job
@@ -19,7 +18,7 @@ class IntakeJobCreate(BaseModel):
     project_id: uuid.UUID
     factory_slug: str = Field(..., min_length=1, max_length=64)
     source_path: str = Field(..., min_length=1)
-    options: Optional[dict[str, Any]] = None
+    options: dict[str, Any] | None = None
 
 
 class IntakeJobOut(BaseModel):
@@ -44,16 +43,16 @@ class IntakeJobOut(BaseModel):
     llm_tokens_input: int
     llm_tokens_output: int
 
-    options: Optional[dict[str, Any]] = None
-    entity_yml: Optional[dict[str, Any]] = None
+    options: dict[str, Any] | None = None
+    entity_yml: dict[str, Any] | None = None
 
     created_at: datetime
     updated_at: datetime
-    scan_completed_at: Optional[datetime] = None
-    review_at: Optional[datetime] = None
-    approved_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    failed_reason: Optional[str] = None
+    scan_completed_at: datetime | None = None
+    review_at: datetime | None = None
+    approved_at: datetime | None = None
+    completed_at: datetime | None = None
+    failed_reason: str | None = None
 
 
 class IntakeJobTransition(BaseModel):
@@ -62,7 +61,7 @@ class IntakeJobTransition(BaseModel):
         ...,
         pattern="^(approved|rejected|cancelled)$",
     )
-    reason: Optional[str] = Field(None, max_length=512)
+    reason: str | None = Field(None, max_length=512)
 
 
 # ════════════════════════════════════════════════════════════
@@ -78,40 +77,40 @@ class IntakeItemOut(BaseModel):
     filename: str
     size_bytes: int
     sha256: str
-    mime_type: Optional[str] = None
-    kind: Optional[str] = None
+    mime_type: str | None = None
+    kind: str | None = None
 
-    predicted_category: Optional[str] = None
-    predicted_sku_slug: Optional[str] = None
-    predicted_subdir: Optional[str] = None
-    predicted_target_filename: Optional[str] = None
-    predicted_tags: Optional[list[str]] = None
+    predicted_category: str | None = None
+    predicted_sku_slug: str | None = None
+    predicted_subdir: str | None = None
+    predicted_target_filename: str | None = None
+    predicted_tags: list[str] | None = None
     confidence: float = 0.0
-    flagged_reason: Optional[str] = None
+    flagged_reason: str | None = None
 
-    cluster_id: Optional[uuid.UUID] = None
+    cluster_id: uuid.UUID | None = None
 
     visual_verified: bool = False
-    visual_dominant_colors: Optional[dict[str, Any]] = None
+    visual_dominant_colors: dict[str, Any] | None = None
 
-    user_decision: Optional[str] = None
-    user_override: Optional[dict[str, Any]] = None
-    user_decision_at: Optional[datetime] = None
+    user_decision: str | None = None
+    user_override: dict[str, Any] | None = None
+    user_decision_at: datetime | None = None
 
-    pushed_asset_id: Optional[uuid.UUID] = None
-    push_error: Optional[str] = None
-    pushed_at: Optional[datetime] = None
+    pushed_asset_id: uuid.UUID | None = None
+    push_error: str | None = None
+    pushed_at: datetime | None = None
 
     created_at: datetime
 
 
 class IntakeItemOverride(BaseModel):
     """单文件 override · BD 改 subdir / filename / tags / sku / category"""
-    predicted_category: Optional[str] = None
-    predicted_sku_slug: Optional[str] = None
-    predicted_subdir: Optional[str] = None
-    predicted_target_filename: Optional[str] = None
-    predicted_tags: Optional[list[str]] = None
+    predicted_category: str | None = None
+    predicted_sku_slug: str | None = None
+    predicted_subdir: str | None = None
+    predicted_target_filename: str | None = None
+    predicted_tags: list[str] | None = None
 
 
 class BulkDecisionIn(BaseModel):
@@ -134,14 +133,14 @@ class IntakeClusterOut(BaseModel):
     id: uuid.UUID
     job_id: uuid.UUID
     sku_slug: str
-    sku_name_cn: Optional[str] = None
-    sku_name_en: Optional[str] = None
-    subcategory: Optional[str] = None
+    sku_name_cn: str | None = None
+    sku_name_en: str | None = None
+    subcategory: str | None = None
     item_count: int
-    representative_item_id: Optional[uuid.UUID] = None
-    category_breakdown: Optional[dict[str, Any]] = None
+    representative_item_id: uuid.UUID | None = None
+    category_breakdown: dict[str, Any] | None = None
     user_confirmed: bool = False
-    user_renamed_slug: Optional[str] = None
+    user_renamed_slug: str | None = None
     created_at: datetime
 
 

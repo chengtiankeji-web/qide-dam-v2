@@ -21,7 +21,6 @@ from __future__ import annotations
 import base64
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
 
 import httpx
 
@@ -46,22 +45,22 @@ async def send_email(
     to_emails: list[str],
     subject: str,
     html_body: str,
-    text_body: Optional[str] = None,
-    cc_emails: Optional[list[str]] = None,
-    bcc_emails: Optional[list[str]] = None,
-    from_email: Optional[str] = None,  # 默认 settings.RESEND_FROM_EMAIL
-    from_name: Optional[str] = None,
-    reply_to: Optional[str] = None,
-    attachments: Optional[list[dict]] = None,  # [{filename, content: bytes / b64, content_type}]
+    text_body: str | None = None,
+    cc_emails: list[str] | None = None,
+    bcc_emails: list[str] | None = None,
+    from_email: str | None = None,  # 默认 settings.RESEND_FROM_EMAIL
+    from_name: str | None = None,
+    reply_to: str | None = None,
+    attachments: list[dict] | None = None,  # [{filename, content: bytes / b64, content_type}]
     # CRM 关联（写 activity / 回溯 lead / deal / quote）
-    related_lead_id: Optional[uuid.UUID] = None,
-    related_deal_id: Optional[uuid.UUID] = None,
-    related_quote_id: Optional[uuid.UUID] = None,
-    related_contact_id: Optional[uuid.UUID] = None,
+    related_lead_id: uuid.UUID | None = None,
+    related_deal_id: uuid.UUID | None = None,
+    related_quote_id: uuid.UUID | None = None,
+    related_contact_id: uuid.UUID | None = None,
     # 营销 unsubscribe link
-    unsubscribe_url: Optional[str] = None,
+    unsubscribe_url: str | None = None,
     # tag for webhook 回溯
-    custom_tags: Optional[dict] = None,
+    custom_tags: dict | None = None,
 ) -> dict:
     """发送邮件 + 写 activity timeline · 返回 Resend message_id"""
     if not settings.RESEND_API_KEY:
@@ -209,7 +208,7 @@ async def handle_resend_webhook(db, event: dict) -> None:
         return
 
     # 查 activity
-    from sqlalchemy import select, update as sql_update
+    from sqlalchemy import select
     result = await db.execute(
         select(CRMActivity).where(CRMActivity.email_message_id == message_id)
     )

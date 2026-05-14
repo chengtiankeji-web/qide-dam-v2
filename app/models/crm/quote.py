@@ -4,13 +4,19 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional
 
 from sqlalchemy import (
-    String, Text, Integer, Numeric, DateTime, ForeignKey,
-    CheckConstraint, UniqueConstraint, text,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
 )
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -28,16 +34,16 @@ class Quote(Base):
     )
     quote_number: Mapped[str] = mapped_column(String(64), nullable=False)
 
-    deal_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    deal_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("deals.id", ondelete="CASCADE"), index=True
     )
-    account_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    account_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("accounts.id", ondelete="SET NULL")
     )
-    contact_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    contact_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("contacts.id", ondelete="SET NULL")
     )
-    factory_slug: Mapped[Optional[str]] = mapped_column(String(64))
+    factory_slug: Mapped[str | None] = mapped_column(String(64))
 
     line_items: Mapped[list[dict]] = mapped_column(JSONB, nullable=False,
                                                    server_default="[]")
@@ -51,32 +57,32 @@ class Quote(Base):
     currency: Mapped[str] = mapped_column(String(8), server_default="USD")
 
     validity_days: Mapped[int] = mapped_column(Integer, server_default="30")
-    payment_terms: Mapped[Optional[str]] = mapped_column(String(128))
-    delivery_terms: Mapped[Optional[str]] = mapped_column(String(32))
-    delivery_port: Mapped[Optional[str]] = mapped_column(String(128))
-    estimated_lead_time_days: Mapped[Optional[int]] = mapped_column(Integer)
+    payment_terms: Mapped[str | None] = mapped_column(String(128))
+    delivery_terms: Mapped[str | None] = mapped_column(String(32))
+    delivery_port: Mapped[str | None] = mapped_column(String(128))
+    estimated_lead_time_days: Mapped[int | None] = mapped_column(Integer)
 
     status: Mapped[str] = mapped_column(String(32), nullable=False,
                                         server_default="draft", index=True)
-    sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    sent_to_email: Mapped[Optional[str]] = mapped_column(String(256))
-    viewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    accepted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    declined_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sent_to_email: Mapped[str | None] = mapped_column(String(256))
+    viewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    declined_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    pdf_storage_key: Mapped[Optional[str]] = mapped_column(Text)
-    pdf_generated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    pdf_storage_key: Mapped[str | None] = mapped_column(Text)
+    pdf_generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    owner_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), index=True
     )
-    created_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
     )
 
-    internal_notes: Mapped[Optional[str]] = mapped_column(Text)
-    customer_notes: Mapped[Optional[str]] = mapped_column(Text)
+    internal_notes: Mapped[str | None] = mapped_column(Text)
+    customer_notes: Mapped[str | None] = mapped_column(Text)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")

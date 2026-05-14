@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import uuid
-from typing import Optional
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,17 +22,17 @@ async def create_account(
     principal: Principal,
     tenant_id: uuid.UUID,
     display_name: str,
-    legal_name: Optional[str] = None,
-    country: Optional[str] = None,
-    country_code: Optional[str] = None,
-    industry: Optional[str] = None,
-    website: Optional[str] = None,
-    employee_count: Optional[int] = None,
-    annual_revenue_usd: Optional[int] = None,
-    primary_email: Optional[str] = None,
-    primary_phone: Optional[str] = None,
-    source: Optional[str] = None,
-    tags: Optional[list[str]] = None,
+    legal_name: str | None = None,
+    country: str | None = None,
+    country_code: str | None = None,
+    industry: str | None = None,
+    website: str | None = None,
+    employee_count: int | None = None,
+    annual_revenue_usd: int | None = None,
+    primary_email: str | None = None,
+    primary_phone: str | None = None,
+    source: str | None = None,
+    tags: list[str] | None = None,
     dedup_check: bool = True,
 ) -> Account:
     """创建公司·按 (tenant_id, legal_name 或 website) 去重"""
@@ -79,9 +78,9 @@ async def find_matching(
     db: AsyncSession,
     *,
     tenant_id: uuid.UUID,
-    legal_name: Optional[str] = None,
-    website: Optional[str] = None,
-) -> Optional[Account]:
+    legal_name: str | None = None,
+    website: str | None = None,
+) -> Account | None:
     """按 legal_name OR website 匹配·防重"""
     if not legal_name and not website:
         return None
@@ -104,9 +103,9 @@ async def list_accounts(
     *,
     principal: Principal,
     tenant_id: uuid.UUID,
-    country: Optional[str] = None,
-    industry: Optional[str] = None,
-    search: Optional[str] = None,
+    country: str | None = None,
+    industry: str | None = None,
+    search: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[Account]:

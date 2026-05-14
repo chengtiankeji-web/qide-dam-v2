@@ -13,9 +13,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime, timedelta, timezone
-from decimal import Decimal
-from typing import Optional
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,7 +26,7 @@ async def get_dashboard_summary(
     db: AsyncSession,
     *,
     tenant_id: uuid.UUID,
-    factory_slug: Optional[str] = None,
+    factory_slug: str | None = None,
 ) -> dict:
     """主仪表盘聚合·一次查询返所有指标"""
     now = datetime.now(timezone.utc)
