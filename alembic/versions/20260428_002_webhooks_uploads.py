@@ -6,11 +6,13 @@ Create Date: 2026-04-28
 """
 from __future__ import annotations
 
-from typing import Sequence, Union
+from collections.abc import Sequence
+from typing import Union
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision: str = "002_webhooks"
 down_revision: Union[str, None] = "001_initial"

@@ -2,15 +2,18 @@
 from __future__ import annotations
 
 import uuid
-from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status as http_status
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import Principal, get_current_principal
 from app.db.session import get_db
 from app.schemas.crm.account import (
-    AccountCreate, AccountOut, AccountListOut, AccountMergeIn,
+    AccountCreate,
+    AccountListOut,
+    AccountMergeIn,
+    AccountOut,
 )
 from app.services.crm import accounts_service
 
@@ -46,9 +49,9 @@ async def create_account(
 
 @router.get("", response_model=AccountListOut)
 async def list_accounts(
-    country: Optional[str] = Query(None),
-    industry: Optional[str] = Query(None),
-    search: Optional[str] = Query(None, max_length=128),
+    country: str | None = Query(None),
+    industry: str | None = Query(None),
+    search: str | None = Query(None, max_length=128),
     limit: int = Query(50, le=200),
     offset: int = Query(0, ge=0),
     principal: Principal = Depends(get_current_principal),

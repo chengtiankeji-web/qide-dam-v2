@@ -11,11 +11,9 @@ import pytest
 from app.services.image_transform_service import (
     ALLOWED_CROP_MODES,
     ALLOWED_FORMATS,
-    ImageTransform,
     derived_storage_key,
     parse_transforms,
 )
-
 
 # ════════════════════════════════════════════════════════════
 # parse_transforms · 合法 cases

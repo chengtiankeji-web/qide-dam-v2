@@ -20,9 +20,10 @@ CRM 核心模块（Rocdesk 替代第一阶段·v7 MVP）
   - leads 表 6 要素分级 + classification 字段是 CRM 灵魂
   - quotes/orders line_items 用 JSONB 不拆子表（避免过度规范化）
 """
-from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import UUID, JSONB, ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
+
+from alembic import op
 
 revision = "009_crm_core"
 down_revision = "008_social_accounts"  # ⚠️ 等小龙的 social_accounts 合 main 后才能跑

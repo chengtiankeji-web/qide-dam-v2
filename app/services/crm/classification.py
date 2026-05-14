@@ -29,8 +29,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Optional
-
 
 # ════════════════════════════════════════════════════════════
 # 1. Regex 模式（按要素分组·多语言）
@@ -156,11 +154,11 @@ COMPANY_NAME_PATTERNS = [
 class ClassificationInput:
     """6 要素分级算法输入"""
     inquiry_text: str
-    contact_email: Optional[str] = None
-    contact_company: Optional[str] = None
-    contact_role: Optional[str] = None
-    contact_phone: Optional[str] = None
-    source: Optional[str] = None
+    contact_email: str | None = None
+    contact_company: str | None = None
+    contact_role: str | None = None
+    contact_phone: str | None = None
+    source: str | None = None
     has_attachments: bool = False
 
 
@@ -265,8 +263,8 @@ def detect_specification(text: str, has_attachments: bool = False) -> FactorBrea
 
 def detect_decision_role(
     text: str,
-    contact_role: Optional[str] = None,
-    contact_email: Optional[str] = None,
+    contact_role: str | None = None,
+    contact_email: str | None = None,
 ) -> FactorBreakdown:
     """要素 ⑤ 决策人身份"""
     result = FactorBreakdown()
@@ -307,8 +305,8 @@ def detect_decision_role(
 
 def detect_company_info(
     text: str,
-    contact_email: Optional[str] = None,
-    contact_company: Optional[str] = None,
+    contact_email: str | None = None,
+    contact_company: str | None = None,
 ) -> FactorBreakdown:
     """要素 ⑥ 公司信息（背调可查）"""
     result = FactorBreakdown()
@@ -458,11 +456,14 @@ def _class_rank(c: str) -> int:
 async def _llm_judge_inquiry(
     inquiry_text: str,
     rule_result: ClassificationResult,
-) -> Optional[dict]:
+) -> dict | None:
     """调 DashScope qwen-plus 复核·返回 {classification, confidence, reasoning}"""
-    from app.services import ai_service
-    import httpx, json
+    import json
+
+    import httpx
+
     from app.core.config import settings
+    from app.services import ai_service
 
     prompt = f"""你是 B2B 外贸询盘分级专家。请根据以下规则判断询盘类别：
 
@@ -515,7 +516,14 @@ D 类：spam / 无意义 / 0 要素
                     .get("message", {}).get("content", "")
             )
             # 提取 JSON
-            content = content.strip().lstrip("```json").rstrip("```").strip()
+            content = content.strip()
+            if content.startswith("```json"):
+                content = content[7:]
+            elif content.startswith("```"):
+                content = content[3:]
+            if content.endswith("```"):
+                content = content[:-3]
+            content = content.strip()
             return json.loads(content)
     except Exception:
         return None

@@ -7,14 +7,10 @@
 """
 from __future__ import annotations
 
-import uuid
-
 import pytest
 
-from app.models.crm.lead import Lead
 from app.services.crm import leads_service
 from app.services.crm.classification import ClassificationInput, classify_lead
-
 
 pytestmark = pytest.mark.asyncio
 

@@ -14,7 +14,6 @@
 from __future__ import annotations
 
 import uuid
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select
@@ -83,9 +82,9 @@ async def create_intake_job(
 
 @router.get("/jobs", response_model=list[IntakeJobOut])
 async def list_intake_jobs(
-    project_id: Optional[uuid.UUID] = Query(None),
-    factory_slug: Optional[str] = Query(None, max_length=64),
-    status_filter: Optional[str] = Query(None, alias="status"),
+    project_id: uuid.UUID | None = Query(None),
+    factory_slug: str | None = Query(None, max_length=64),
+    status_filter: str | None = Query(None, alias="status"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     p: Principal = Depends(get_current_principal),
@@ -188,8 +187,8 @@ async def transition_intake_job(
 @router.get("/jobs/{job_id}/items", response_model=list[IntakeItemOut])
 async def list_intake_items(
     job_id: uuid.UUID,
-    category: Optional[str] = Query(None, max_length=64),
-    sku_slug: Optional[str] = Query(None, max_length=128),
+    category: str | None = Query(None, max_length=64),
+    sku_slug: str | None = Query(None, max_length=128),
     flagged_only: bool = Query(False),
     limit: int = Query(200, ge=1, le=500),
     offset: int = Query(0, ge=0),

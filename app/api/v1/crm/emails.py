@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 import uuid
-from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status as http_status
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import status as http_status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,17 +19,17 @@ class SendEmailIn(BaseModel):
     to_emails: list[EmailStr] = Field(..., min_length=1)
     subject: str = Field(..., min_length=1, max_length=512)
     html_body: str = Field(..., min_length=1)
-    text_body: Optional[str] = None
-    cc_emails: Optional[list[EmailStr]] = None
-    bcc_emails: Optional[list[EmailStr]] = None
-    from_email: Optional[EmailStr] = None
-    from_name: Optional[str] = None
-    reply_to: Optional[EmailStr] = None
-    related_lead_id: Optional[uuid.UUID] = None
-    related_deal_id: Optional[uuid.UUID] = None
-    related_quote_id: Optional[uuid.UUID] = None
-    related_contact_id: Optional[uuid.UUID] = None
-    unsubscribe_url: Optional[str] = None
+    text_body: str | None = None
+    cc_emails: list[EmailStr] | None = None
+    bcc_emails: list[EmailStr] | None = None
+    from_email: EmailStr | None = None
+    from_name: str | None = None
+    reply_to: EmailStr | None = None
+    related_lead_id: uuid.UUID | None = None
+    related_deal_id: uuid.UUID | None = None
+    related_quote_id: uuid.UUID | None = None
+    related_contact_id: uuid.UUID | None = None
+    unsubscribe_url: str | None = None
 
 
 class SendEmailOut(BaseModel):
@@ -100,4 +100,3 @@ async def resend_webhook(
 
     await email_service.handle_resend_webhook(db, event)
     await db.commit()
-    return None

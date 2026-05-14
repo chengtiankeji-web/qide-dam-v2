@@ -12,8 +12,6 @@
 """
 from __future__ import annotations
 
-from typing import Optional
-
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,7 +24,7 @@ router = APIRouter()
 
 @router.get("")
 async def get_dashboard(
-    factory_slug: Optional[str] = Query(None, description="筛选单工厂"),
+    factory_slug: str | None = Query(None, description="筛选单工厂"),
     principal: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> dict:

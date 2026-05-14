@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -43,7 +43,7 @@ router = APIRouter()
 class AuthorizeIn(BaseModel):
     factory_slug: str = Field(..., max_length=64)
     project_id: uuid.UUID
-    extra_scopes: Optional[list[str]] = None
+    extra_scopes: list[str] | None = None
 
 
 class AuthorizeOut(BaseModel):
@@ -55,9 +55,9 @@ class CredentialSummaryOut(BaseModel):
     id: str
     platform: str
     credential_type: str
-    expires_at: Optional[str] = None
-    refresh_failed_at: Optional[str] = None
-    scopes: Optional[str] = None
+    expires_at: str | None = None
+    refresh_failed_at: str | None = None
+    scopes: str | None = None
     created_at: str
 
 
@@ -66,16 +66,16 @@ class SocialAccountCreate(BaseModel):
     factory_slug: str = Field(..., max_length=64)
     platform: str
     platform_account_id: str
-    display_name: Optional[str] = None
-    profile_url: Optional[str] = None
-    avatar_url: Optional[str] = None
-    credential_id: Optional[uuid.UUID] = None
+    display_name: str | None = None
+    profile_url: str | None = None
+    avatar_url: str | None = None
+    credential_id: uuid.UUID | None = None
 
 
 class SocialAccountUpdate(BaseModel):
-    display_name: Optional[str] = None
-    status: Optional[str] = None
-    credential_id: Optional[uuid.UUID] = None
+    display_name: str | None = None
+    status: str | None = None
+    credential_id: uuid.UUID | None = None
 
 
 class SocialAccountOut(BaseModel):
@@ -87,14 +87,14 @@ class SocialAccountOut(BaseModel):
     factory_slug: str
     platform: str
     platform_account_id: str
-    display_name: Optional[str] = None
-    profile_url: Optional[str] = None
-    avatar_url: Optional[str] = None
-    credential_id: Optional[uuid.UUID] = None
+    display_name: str | None = None
+    profile_url: str | None = None
+    avatar_url: str | None = None
+    credential_id: uuid.UUID | None = None
     status: str
-    last_post_at: Optional[datetime] = None
+    last_post_at: datetime | None = None
     warning_count: int
-    metrics: Optional[dict[str, Any]] = None
+    metrics: dict[str, Any] | None = None
     created_at: datetime
 
 
@@ -104,9 +104,9 @@ class SocialPostCreate(BaseModel):
     factory_slug: str = Field(..., max_length=64)
     content_text: str = Field(..., min_length=1, max_length=10000)
     content_language: str = "en"
-    asset_ids: Optional[list[str]] = None
-    link_url: Optional[str] = None
-    scheduled_at: Optional[datetime] = None
+    asset_ids: list[str] | None = None
+    link_url: str | None = None
+    scheduled_at: datetime | None = None
 
 
 class SocialPostOut(BaseModel):
@@ -116,17 +116,17 @@ class SocialPostOut(BaseModel):
     account_id: uuid.UUID
     factory_slug: str
     content_text: str
-    content_language: Optional[str] = None
+    content_language: str | None = None
     status: str
-    scheduled_at: Optional[datetime] = None
-    published_at: Optional[datetime] = None
-    platform_post_id: Optional[str] = None
-    platform_post_url: Optional[str] = None
+    scheduled_at: datetime | None = None
+    published_at: datetime | None = None
+    platform_post_id: str | None = None
+    platform_post_url: str | None = None
     metrics_likes: int = 0
     metrics_comments: int = 0
     metrics_shares: int = 0
     metrics_impressions: int = 0
-    error_message: Optional[str] = None
+    error_message: str | None = None
     created_at: datetime
 
 
@@ -188,7 +188,7 @@ async def social_oauth_callback(
 
 @router.get("/credentials", response_model=list[CredentialSummaryOut])
 async def list_credentials(
-    platform: Optional[str] = Query(None, max_length=32),
+    platform: str | None = Query(None, max_length=32),
     p: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
 ) -> list[CredentialSummaryOut]:
@@ -221,10 +221,10 @@ async def revoke_credential_endpoint(
 
 @router.get("/accounts", response_model=list[SocialAccountOut])
 async def list_accounts(
-    project_id: Optional[uuid.UUID] = Query(None),
-    factory_slug: Optional[str] = Query(None, max_length=64),
-    platform: Optional[str] = Query(None, max_length=32),
-    status_filter: Optional[str] = Query(None, alias="status", max_length=32),
+    project_id: uuid.UUID | None = Query(None),
+    factory_slug: str | None = Query(None, max_length=64),
+    platform: str | None = Query(None, max_length=32),
+    status_filter: str | None = Query(None, alias="status", max_length=32),
     limit: int = Query(100, ge=1, le=500),
     p: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),
@@ -320,10 +320,10 @@ async def delete_account(
 
 @router.get("/posts", response_model=list[SocialPostOut])
 async def list_posts(
-    project_id: Optional[uuid.UUID] = Query(None),
-    account_id: Optional[uuid.UUID] = Query(None),
-    factory_slug: Optional[str] = Query(None, max_length=64),
-    status_filter: Optional[str] = Query(None, alias="status", max_length=32),
+    project_id: uuid.UUID | None = Query(None),
+    account_id: uuid.UUID | None = Query(None),
+    factory_slug: str | None = Query(None, max_length=64),
+    status_filter: str | None = Query(None, alias="status", max_length=32),
     limit: int = Query(100, ge=1, le=500),
     p: Principal = Depends(get_current_principal),
     db: AsyncSession = Depends(get_db),

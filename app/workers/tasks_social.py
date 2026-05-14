@@ -11,12 +11,10 @@ v4.0 占位实现 · publish_social_post 走 social_publisher 的 placeholder。
 """
 from __future__ import annotations
 
-import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
 from app.models.social import SocialAccount, SocialCredential, SocialPost

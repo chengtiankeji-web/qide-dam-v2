@@ -20,11 +20,10 @@
 """
 from __future__ import annotations
 
-import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 
@@ -41,12 +40,12 @@ logger = get_logger(__name__)
 @dataclass
 class PublishResult:
     success: bool
-    platform_post_id: Optional[str] = None
-    platform_post_url: Optional[str] = None
-    error_code: Optional[str] = None
-    error_message: Optional[str] = None
-    raw_response: Optional[dict[str, Any]] = None
-    published_at: Optional[datetime] = None
+    platform_post_id: str | None = None
+    platform_post_url: str | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+    raw_response: dict[str, Any] | None = None
+    published_at: datetime | None = None
 
 
 @dataclass
@@ -56,7 +55,7 @@ class PublishRequest:
     content_text: str
     asset_urls: list[str]      # R2 signed URLs · 或 absolute https
     asset_mime_types: list[str]
-    link_url: Optional[str] = None
+    link_url: str | None = None
     language: str = "en"
 
 
@@ -80,7 +79,7 @@ class PublisherClient(ABC):
         *,
         token: str,
         payload: dict[str, Any],
-        extra_headers: Optional[dict[str, str]] = None,
+        extra_headers: dict[str, str] | None = None,
     ) -> httpx.Response:
         """通用 POST JSON · 带 Authorization Bearer header"""
         headers = {
@@ -309,8 +308,8 @@ async def publish_post(
     token: dict[str, Any],
     content_text: str,
     asset_urls: list[str],
-    asset_mime_types: Optional[list[str]] = None,
-    link_url: Optional[str] = None,
+    asset_mime_types: list[str] | None = None,
+    link_url: str | None = None,
     language: str = "en",
 ) -> PublishResult:
     """统一发帖入口·调对应 platform 的 client"""

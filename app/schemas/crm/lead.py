@@ -3,10 +3,8 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Optional
 
-from pydantic import BaseModel, EmailStr, Field, ConfigDict
-
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 # ════════════════════════════════════════════════════════════
 # Input schemas
@@ -14,30 +12,30 @@ from pydantic import BaseModel, EmailStr, Field, ConfigDict
 
 class LeadCreate(BaseModel):
     """POST /v1/crm/leads"""
-    tenant_id: Optional[uuid.UUID] = None  # null = principal.tenant_id
+    tenant_id: uuid.UUID | None = None  # null = principal.tenant_id
     factory_slug: str = Field(..., min_length=1, max_length=64)
     source: str = Field(..., max_length=32,
                         description="linkedin/fb/ig/tiktok/whatsapp/email/cmh-form/share-link/cold/referral/other")
     inquiry_text: str = Field(..., min_length=1)
-    project_id: Optional[uuid.UUID] = None
-    inquiry_language: Optional[str] = Field(None, max_length=8)
-    inquiry_attachments: Optional[list[dict]] = None
+    project_id: uuid.UUID | None = None
+    inquiry_language: str | None = Field(None, max_length=8)
+    inquiry_attachments: list[dict] | None = None
 
     # 联系人
-    contact_id: Optional[uuid.UUID] = None
-    account_id: Optional[uuid.UUID] = None
-    contact_name: Optional[str] = Field(None, max_length=256)
-    contact_email: Optional[EmailStr] = None
-    contact_phone: Optional[str] = Field(None, max_length=64)
-    contact_company: Optional[str] = Field(None, max_length=256)
-    contact_country: Optional[str] = Field(None, max_length=64)
-    contact_role: Optional[str] = Field(None, max_length=256)
+    contact_id: uuid.UUID | None = None
+    account_id: uuid.UUID | None = None
+    contact_name: str | None = Field(None, max_length=256)
+    contact_email: EmailStr | None = None
+    contact_phone: str | None = Field(None, max_length=64)
+    contact_company: str | None = Field(None, max_length=256)
+    contact_country: str | None = Field(None, max_length=64)
+    contact_role: str | None = Field(None, max_length=256)
 
     # 来源关联
-    source_inbox_id: Optional[uuid.UUID] = None
-    source_share_link_id: Optional[uuid.UUID] = None
-    source_campaign: Optional[str] = Field(None, max_length=128)
-    source_url: Optional[str] = None
+    source_inbox_id: uuid.UUID | None = None
+    source_share_link_id: uuid.UUID | None = None
+    source_campaign: str | None = Field(None, max_length=128)
+    source_url: str | None = None
 
 
 class LeadAssignIn(BaseModel):
@@ -48,9 +46,9 @@ class LeadAssignIn(BaseModel):
 class LeadTransitionIn(BaseModel):
     """POST /v1/crm/leads/{id}/transition"""
     new_status: str = Field(..., pattern="^(new|contacted|qualified|unqualified|nurturing|converted|lost|spam|archived)$")
-    note: Optional[str] = None
-    lost_reason: Optional[str] = Field(None, max_length=128)
-    lost_competitor: Optional[str] = Field(None, max_length=256)
+    note: str | None = None
+    lost_reason: str | None = Field(None, max_length=128)
+    lost_competitor: str | None = Field(None, max_length=256)
 
 
 class LeadOverrideClassificationIn(BaseModel):
@@ -62,10 +60,10 @@ class LeadOverrideClassificationIn(BaseModel):
 class LeadConvertIn(BaseModel):
     """POST /v1/crm/leads/{id}/convert"""
     deal_name: str = Field(..., min_length=1, max_length=256)
-    estimated_value_usd: Optional[float] = Field(None, ge=0)
+    estimated_value_usd: float | None = Field(None, ge=0)
     probability_pct: int = Field(50, ge=0, le=100)
-    expected_close_date: Optional[str] = None  # ISO date
-    related_sku_slugs: Optional[list[str]] = None
+    expected_close_date: str | None = None  # ISO date
+    related_sku_slugs: list[str] | None = None
 
 
 # ════════════════════════════════════════════════════════════
@@ -79,23 +77,23 @@ class LeadOut(BaseModel):
     id: uuid.UUID
     tenant_id: uuid.UUID
     factory_slug: str
-    project_id: Optional[uuid.UUID]
+    project_id: uuid.UUID | None
     source: str
-    source_campaign: Optional[str]
-    source_url: Optional[str]
+    source_campaign: str | None
+    source_url: str | None
 
-    contact_id: Optional[uuid.UUID]
-    account_id: Optional[uuid.UUID]
-    contact_name: Optional[str]
-    contact_email: Optional[str]
-    contact_phone: Optional[str]
-    contact_company: Optional[str]
-    contact_country: Optional[str]
-    contact_role: Optional[str]
+    contact_id: uuid.UUID | None
+    account_id: uuid.UUID | None
+    contact_name: str | None
+    contact_email: str | None
+    contact_phone: str | None
+    contact_company: str | None
+    contact_country: str | None
+    contact_role: str | None
 
     inquiry_text: str
-    inquiry_attachments: Optional[list[dict]]
-    inquiry_language: Optional[str]
+    inquiry_attachments: list[dict] | None
+    inquiry_language: str | None
 
     # 6 要素
     has_quantity: bool
@@ -105,33 +103,33 @@ class LeadOut(BaseModel):
     has_decision_role: bool
     has_company_info: bool
     six_factor_score: int
-    six_factor_breakdown: Optional[dict]
-    classification: Optional[str]
+    six_factor_breakdown: dict | None
+    classification: str | None
     classification_overridden: bool
 
     # 状态
     status: str
-    assigned_user_id: Optional[uuid.UUID]
-    assigned_at: Optional[datetime]
-    first_contact_at: Optional[datetime]
-    last_activity_at: Optional[datetime]
-    qualified_at: Optional[datetime]
-    converted_to_deal_id: Optional[uuid.UUID]
-    converted_at: Optional[datetime]
-    lost_at: Optional[datetime]
-    lost_reason: Optional[str]
-    lost_competitor: Optional[str]
+    assigned_user_id: uuid.UUID | None
+    assigned_at: datetime | None
+    first_contact_at: datetime | None
+    last_activity_at: datetime | None
+    qualified_at: datetime | None
+    converted_to_deal_id: uuid.UUID | None
+    converted_at: datetime | None
+    lost_at: datetime | None
+    lost_reason: str | None
+    lost_competitor: str | None
 
     # AI
-    ai_intent_summary: Optional[str]
-    ai_suggested_reply: Optional[str]
-    ai_competitors_mentioned: Optional[list[str]]
-    ai_translated_zh: Optional[str]
-    ai_urgency_score: Optional[float]
-    ai_quality_score: Optional[float]
+    ai_intent_summary: str | None
+    ai_suggested_reply: str | None
+    ai_competitors_mentioned: list[str] | None
+    ai_translated_zh: str | None
+    ai_urgency_score: float | None
+    ai_quality_score: float | None
 
-    tags: Optional[list[str]]
-    notes: Optional[str]
+    tags: list[str] | None
+    notes: str | None
 
     created_at: datetime
     updated_at: datetime

@@ -12,9 +12,10 @@ Smart Intake v4 · 把"工厂 raw folder → 结构化 DAM"自动化
 ⚠️ 与 009_crm_core 顺序：009 depends on 008（social）+ 这个 007 互不依赖
    实际部署顺序：006（已部署）→ 007（本）→ 008（小龙 social）→ 009（Claude crm）
 """
-from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import UUID, JSONB, ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
+
+from alembic import op
 
 revision = "007_intake_jobs"
 down_revision = "006_assets_folder_id"

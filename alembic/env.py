@@ -5,19 +5,20 @@ short migration runs. We keep app code on asyncpg and run alembic with psycopg2.
 """
 from __future__ import annotations
 
-from logging.config import fileConfig
-
-from alembic import context
-from sqlalchemy import engine_from_config, pool
-
 # Make `app` importable
 import sys
+from logging.config import fileConfig
 from pathlib import Path
+
+from sqlalchemy import engine_from_config, pool
+
+from alembic import context
+
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
+import app.models  # noqa: F401, E402  ensures all models are imported
 from app.core.config import settings  # noqa: E402
 from app.db.base import Base  # noqa: E402
-import app.models  # noqa: F401, E402  ensures all models are imported
 
 config = context.config
 

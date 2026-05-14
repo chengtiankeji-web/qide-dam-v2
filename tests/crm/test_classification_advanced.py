@@ -1,14 +1,15 @@
 """6 要素分级算法·扩展测试·覆盖边界 + 真实询盘"""
 from __future__ import annotations
 
-import pytest
-
 from app.services.crm.classification import (
-    ClassificationInput, classify_lead,
-    detect_quantity, detect_budget, detect_timeline,
-    detect_specification, detect_decision_role, detect_company_info,
+    ClassificationInput,
+    classify_lead,
+    detect_budget,
+    detect_company_info,
+    detect_decision_role,
+    detect_quantity,
+    detect_timeline,
 )
-
 
 # ════════════════════════════════════════════════════════════
 # 真实询盘片段·从 CMH / 客户实际收到的模式
@@ -148,7 +149,7 @@ def test_breakdown_has_evidence_for_a_class():
     ))
     db_dict = result.to_db_dict()
     breakdown = db_dict["six_factor_breakdown"]
-    for factor_name, factor_data in breakdown.items():
+    for _factor_name, factor_data in breakdown.items():
         if factor_data["detected"]:
             assert len(factor_data["evidence"]) > 0
 

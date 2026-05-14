@@ -12,9 +12,10 @@ Social Matrix v2 · 5 个 Developer App OAuth + 100 工厂 token 安全存储
 ⚠️ 顺序：007 (intake) → 008 (social) → 009 (crm)
    009_crm_core 已先于 008 写好 · social_oauth callback 可写 lead.source_share_link_id
 """
-from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+
+from alembic import op
 
 revision = "008_social_accounts"
 down_revision = "007_intake_jobs"

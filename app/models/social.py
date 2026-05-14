@@ -14,19 +14,27 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
-    String, Text, Boolean, Integer, DateTime, LargeBinary,
-    ForeignKey, CheckConstraint, UniqueConstraint, Index, text,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    LargeBinary,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
 )
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 
 if TYPE_CHECKING:
-    from app.models.user import User
+    pass
 
 
 # ════════════════════════════════════════════════════════════
@@ -56,10 +64,10 @@ class SocialCredential(Base):
     payload_nonce: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     payload_tag: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
 
-    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    refresh_failed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    scopes: Mapped[Optional[str]] = mapped_column(Text)
-    created_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    refresh_failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    scopes: Mapped[str | None] = mapped_column(Text)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"),
     )
     created_at: Mapped[datetime] = mapped_column(
@@ -68,7 +76,7 @@ class SocialCredential(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()"),
     )
-    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (
         CheckConstraint(
@@ -114,25 +122,25 @@ class SocialAccount(Base):
     platform: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     platform_account_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
-    display_name: Mapped[Optional[str]] = mapped_column(String(256))
-    profile_url: Mapped[Optional[str]] = mapped_column(Text)
-    avatar_url: Mapped[Optional[str]] = mapped_column(Text)
+    display_name: Mapped[str | None] = mapped_column(String(256))
+    profile_url: Mapped[str | None] = mapped_column(Text)
+    avatar_url: Mapped[str | None] = mapped_column(Text)
 
-    credential_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    credential_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("social_credentials.id", ondelete="SET NULL"),
     )
-    credential: Mapped[Optional["SocialCredential"]] = relationship(
+    credential: Mapped[SocialCredential | None] = relationship(
         "SocialCredential", foreign_keys=[credential_id],
     )
 
     status: Mapped[str] = mapped_column(
         String(32), nullable=False, server_default="active", index=True,
     )
-    last_post_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    last_check_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    last_post_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     warning_count: Mapped[int] = mapped_column(Integer, server_default="0")
-    metrics: Mapped[Optional[dict]] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    metrics: Mapped[dict | None] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()"),
@@ -141,7 +149,7 @@ class SocialAccount(Base):
         DateTime(timezone=True), nullable=False, server_default=text("now()"),
     )
 
-    posts: Mapped[list["SocialPost"]] = relationship(
+    posts: Mapped[list[SocialPost]] = relationship(
         "SocialPost", back_populates="account",
         cascade="all, delete-orphan",
         passive_deletes=True,
@@ -199,41 +207,41 @@ class SocialPost(Base):
     factory_slug: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
 
     content_text: Mapped[str] = mapped_column(Text, nullable=False)
-    content_language: Mapped[Optional[str]] = mapped_column(
+    content_language: Mapped[str | None] = mapped_column(
         String(8), server_default="en",
     )
-    asset_ids: Mapped[Optional[list]] = mapped_column(
+    asset_ids: Mapped[list | None] = mapped_column(
         JSONB, server_default=text("'[]'::jsonb"),
     )
-    link_url: Mapped[Optional[str]] = mapped_column(Text)
+    link_url: Mapped[str | None] = mapped_column(Text)
 
     status: Mapped[str] = mapped_column(
         String(32), nullable=False, server_default="draft", index=True,
     )
-    scheduled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    platform_post_id: Mapped[Optional[str]] = mapped_column(String(256))
-    platform_post_url: Mapped[Optional[str]] = mapped_column(Text)
+    scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    platform_post_id: Mapped[str | None] = mapped_column(String(256))
+    platform_post_url: Mapped[str | None] = mapped_column(Text)
 
     metrics_likes: Mapped[int] = mapped_column(Integer, server_default="0")
     metrics_comments: Mapped[int] = mapped_column(Integer, server_default="0")
     metrics_shares: Mapped[int] = mapped_column(Integer, server_default="0")
     metrics_impressions: Mapped[int] = mapped_column(Integer, server_default="0")
     metrics_clicks: Mapped[int] = mapped_column(Integer, server_default="0")
-    metrics_last_synced_at: Mapped[Optional[datetime]] = mapped_column(
+    metrics_last_synced_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
     )
 
-    error_message: Mapped[Optional[str]] = mapped_column(Text)
+    error_message: Mapped[str | None] = mapped_column(Text)
     retry_count: Mapped[int] = mapped_column(Integer, server_default="0")
 
-    created_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"),
     )
-    approved_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    approved_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"),
     )
-    approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()"),
@@ -242,7 +250,7 @@ class SocialPost(Base):
         DateTime(timezone=True), nullable=False, server_default=text("now()"),
     )
 
-    account: Mapped["SocialAccount"] = relationship(
+    account: Mapped[SocialAccount] = relationship(
         "SocialAccount", back_populates="posts",
     )
 

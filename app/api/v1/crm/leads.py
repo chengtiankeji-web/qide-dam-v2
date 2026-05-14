@@ -14,22 +14,22 @@
 from __future__ import annotations
 
 import uuid
-from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status as http_status
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import Principal, get_current_principal
 from app.db.session import get_db
 from app.schemas.crm.lead import (
-    LeadCreate,
-    LeadOut,
-    LeadListOut,
     LeadAssignIn,
-    LeadTransitionIn,
-    LeadOverrideClassificationIn,
     LeadConvertIn,
+    LeadCreate,
     LeadDealOut,
+    LeadListOut,
+    LeadOut,
+    LeadOverrideClassificationIn,
+    LeadTransitionIn,
 )
 from app.services.crm import leads_service
 
@@ -85,12 +85,12 @@ async def create_lead(
 
 @router.get("", response_model=LeadListOut)
 async def list_leads(
-    factory_slug: Optional[str] = Query(None),
-    classification: Optional[str] = Query(None, pattern="^[ABCD]$"),
-    status: Optional[str] = Query(None),
-    assigned_user_id: Optional[uuid.UUID] = Query(None),
-    source: Optional[str] = Query(None),
-    tenant_id: Optional[uuid.UUID] = Query(None, description="platform_admin 跨 tenant"),
+    factory_slug: str | None = Query(None),
+    classification: str | None = Query(None, pattern="^[ABCD]$"),
+    status: str | None = Query(None),
+    assigned_user_id: uuid.UUID | None = Query(None),
+    source: str | None = Query(None),
+    tenant_id: uuid.UUID | None = Query(None, description="platform_admin 跨 tenant"),
     limit: int = Query(50, le=200),
     offset: int = Query(0, ge=0),
     order_by: str = Query("created_at_desc",

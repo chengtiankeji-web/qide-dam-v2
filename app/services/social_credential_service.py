@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,7 +27,6 @@ from app.core.deps import Principal
 from app.core.logging import get_logger
 from app.models.social import SocialAccount, SocialCredential
 from app.services import audit_service
-from app.services.audit_service import AuditAction
 from app.services.vault_service import decrypt_payload, encrypt_payload
 
 logger = get_logger(__name__)
@@ -60,8 +59,8 @@ async def store_credential(
     platform: str,
     credential_type: str,
     token_payload: dict[str, Any],  # {access_token, refresh_token, expires_in, scopes, ...}
-    expires_at: Optional[datetime] = None,
-    scopes: Optional[str] = None,
+    expires_at: datetime | None = None,
+    scopes: str | None = None,
     request=None,
 ) -> SocialCredential:
     """加密 token_payload 入库 · 返 SocialCredential（不含 plaintext）
@@ -125,7 +124,7 @@ async def store_credential(
 async def reveal_credential(
     db: AsyncSession,
     *,
-    principal: Optional[Principal],
+    principal: Principal | None,
     credential_id: uuid.UUID,
     purpose: str,  # 必填·审计要用
     request=None,
@@ -194,7 +193,7 @@ async def reveal_credential(
 async def revoke_credential(
     db: AsyncSession,
     *,
-    principal: Optional[Principal],
+    principal: Principal | None,
     credential_id: uuid.UUID,
     reason: str,
     request=None,
@@ -239,7 +238,7 @@ async def list_credentials_summary(
     db: AsyncSession,
     *,
     tenant_id: uuid.UUID,
-    platform: Optional[str] = None,
+    platform: str | None = None,
 ) -> list[dict[str, Any]]:
     """列凭证·只返非敏感字段·永不返 ciphertext"""
     q = select(SocialCredential).where(

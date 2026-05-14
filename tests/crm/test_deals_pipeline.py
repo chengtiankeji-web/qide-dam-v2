@@ -4,7 +4,8 @@ from __future__ import annotations
 import pytest
 
 from app.services.crm.deals_service import (
-    ALLOWED_STAGE_TRANSITIONS, DEFAULT_PROBABILITY,
+    ALLOWED_STAGE_TRANSITIONS,
+    DEFAULT_PROBABILITY,
 )
 
 

@@ -735,6 +735,7 @@ async def purge_old_trashed(
     硬删 deleted_at < now - N 天 的资产 · 跨所有 tenant · 默认 15 天。
     """
     from datetime import datetime, timedelta
+
     from sqlalchemy import select as _s
 
     cutoff = datetime.now(UTC) - timedelta(days=older_than_days)

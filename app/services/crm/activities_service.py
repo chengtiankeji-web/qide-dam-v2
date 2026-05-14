@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
 
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,16 +34,16 @@ async def create_activity(
     activity_type: str,
     entity_type: str,  # lead/contact/account/deal/quote
     entity_id: uuid.UUID,
-    subject: Optional[str] = None,
-    description: Optional[str] = None,
-    duration_minutes: Optional[int] = None,
-    meeting_location: Optional[str] = None,
-    meeting_attendees: Optional[list[str]] = None,
-    meeting_outcome: Optional[str] = None,
-    task_due_at: Optional[datetime] = None,
-    task_priority: Optional[str] = None,
-    extra_metadata: Optional[dict] = None,
-    attachments: Optional[list[dict]] = None,
+    subject: str | None = None,
+    description: str | None = None,
+    duration_minutes: int | None = None,
+    meeting_location: str | None = None,
+    meeting_attendees: list[str] | None = None,
+    meeting_outcome: str | None = None,
+    task_due_at: datetime | None = None,
+    task_priority: str | None = None,
+    extra_metadata: dict | None = None,
+    attachments: list[dict] | None = None,
 ) -> CRMActivity:
     activity = CRMActivity(
         tenant_id=tenant_id,
@@ -72,10 +71,10 @@ async def list_activities(
     db: AsyncSession,
     *,
     tenant_id: uuid.UUID,
-    entity_type: Optional[str] = None,
-    entity_id: Optional[uuid.UUID] = None,
-    activity_type: Optional[str] = None,
-    performed_by_user_id: Optional[uuid.UUID] = None,
+    entity_type: str | None = None,
+    entity_id: uuid.UUID | None = None,
+    activity_type: str | None = None,
+    performed_by_user_id: uuid.UUID | None = None,
     limit: int = 100,
     offset: int = 0,
 ) -> list[CRMActivity]:
@@ -120,7 +119,7 @@ async def get_overdue_tasks(
     db: AsyncSession,
     *,
     tenant_id: uuid.UUID,
-    user_id: Optional[uuid.UUID] = None,
+    user_id: uuid.UUID | None = None,
 ) -> list[CRMActivity]:
     """逾期任务 · 给 sales dashboard 红色提示用"""
     now = datetime.now(timezone.utc)

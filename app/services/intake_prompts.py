@@ -13,9 +13,6 @@
 """
 from __future__ import annotations
 
-from typing import Optional
-
-
 # ════════════════════════════════════════════════════════════
 # 1. 文件名分类（filename → category + sku_slug + tags）
 # ════════════════════════════════════════════════════════════
@@ -39,7 +36,7 @@ def classify_filename_batch_prompt(
     factory_slug: str,
     filenames: list[dict],
     *,
-    known_sku_slugs: Optional[list[str]] = None,
+    known_sku_slugs: list[str] | None = None,
 ) -> str:
     """批量分类一组文件名·返 JSON array
 

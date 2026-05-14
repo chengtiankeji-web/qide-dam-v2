@@ -3,14 +3,12 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import Principal
 from app.core.logging import get_logger
-from app.models.crm.account import Account
 from app.models.crm.contact import Contact
 from app.services import audit_service
 from app.services.audit_service import AuditAction
@@ -24,13 +22,13 @@ async def create_contact(
     principal: Principal,
     tenant_id: uuid.UUID,
     full_name: str,
-    email: Optional[str] = None,
-    phone: Optional[str] = None,
-    title: Optional[str] = None,
-    role_category: Optional[str] = None,
-    account_id: Optional[uuid.UUID] = None,
-    linkedin_url: Optional[str] = None,
-    source: Optional[str] = None,
+    email: str | None = None,
+    phone: str | None = None,
+    title: str | None = None,
+    role_category: str | None = None,
+    account_id: uuid.UUID | None = None,
+    linkedin_url: str | None = None,
+    source: str | None = None,
     dedup_check: bool = True,
 ) -> Contact:
     """创建联系人·默认按 (tenant_id, email) 去重·已存在则返回旧 row + 更新缺失字段"""
@@ -40,17 +38,29 @@ async def create_contact(
             # 智能合并：填缺失字段·不覆盖已有值
             changed = False
             if not existing.full_name and full_name:
-                existing.full_name = full_name; changed = True
+                existing.full_name = full_name
+
+                changed = True
             if not existing.title and title:
-                existing.title = title; changed = True
+                existing.title = title
+
+                changed = True
             if not existing.phone and phone:
-                existing.phone = phone; changed = True
+                existing.phone = phone
+
+                changed = True
             if not existing.account_id and account_id:
-                existing.account_id = account_id; changed = True
+                existing.account_id = account_id
+
+                changed = True
             if not existing.linkedin_url and linkedin_url:
-                existing.linkedin_url = linkedin_url; changed = True
+                existing.linkedin_url = linkedin_url
+
+                changed = True
             if not existing.role_category and role_category:
-                existing.role_category = role_category; changed = True
+                existing.role_category = role_category
+
+                changed = True
             if changed:
                 await db.flush()
             return existing
@@ -86,7 +96,7 @@ async def create_contact(
     return contact
 
 
-def _infer_role_category(title: Optional[str]) -> Optional[str]:
+def _infer_role_category(title: str | None) -> str | None:
     """从职位推 role_category"""
     if not title:
         return None
@@ -108,7 +118,7 @@ def _infer_role_category(title: Optional[str]) -> Optional[str]:
 
 async def find_by_email(
     db: AsyncSession, *, tenant_id: uuid.UUID, email: str
-) -> Optional[Contact]:
+) -> Contact | None:
     q = select(Contact).where(
         Contact.tenant_id == tenant_id,
         Contact.email == email.lower().strip(),
@@ -121,9 +131,9 @@ async def list_contacts(
     *,
     principal: Principal,
     tenant_id: uuid.UUID,
-    account_id: Optional[uuid.UUID] = None,
-    role_category: Optional[str] = None,
-    search: Optional[str] = None,
+    account_id: uuid.UUID | None = None,
+    role_category: str | None = None,
+    search: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[Contact]:
@@ -148,7 +158,7 @@ async def unsubscribe(
     *,
     principal: Principal,
     contact_id: uuid.UUID,
-    reason: Optional[str] = None,
+    reason: str | None = None,
 ) -> Contact:
     """退订营销邮件·设 unsubscribed_at + opt_in_marketing=false"""
     contact = await db.get(Contact, contact_id)

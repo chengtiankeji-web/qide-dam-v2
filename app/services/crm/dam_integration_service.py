@@ -13,7 +13,6 @@ v7.1 起：2 / 3 / 4
 from __future__ import annotations
 
 import uuid
-from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,7 +27,7 @@ async def link_quote_items_to_dam_assets(
     *,
     tenant_id: uuid.UUID,
     line_items: list[dict],
-    factory_slug: Optional[str] = None,
+    factory_slug: str | None = None,
 ) -> list[dict]:
     """quote line_items · 自动查 DAM 里同 sku-slug 的 master 图 · 写到 line_item
 
@@ -196,7 +195,7 @@ async def find_share_link_for_lead(
     *,
     tenant_id: uuid.UUID,
     share_link_token: str,
-) -> Optional[uuid.UUID]:
+) -> uuid.UUID | None:
     """share_link 公开 resolve · 反查 share_link.id
 
     用于：客户点了 brand portal 的"询盘"按钮（带 ?share_link=<token>）·

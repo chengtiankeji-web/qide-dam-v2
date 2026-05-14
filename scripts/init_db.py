@@ -13,7 +13,6 @@ import asyncio
 import sys
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import hash_password
 from app.db.session import AsyncSessionLocal

@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import json
 import uuid
-from typing import Optional
 
 import httpx
 
@@ -78,12 +77,12 @@ async def enrich_lead(db, lead_id: uuid.UUID) -> None:
 
 async def _call_dashscope_enrich(
     inquiry_text: str,
-    contact_name: Optional[str],
-    contact_company: Optional[str],
-    contact_role: Optional[str],
+    contact_name: str | None,
+    contact_company: str | None,
+    contact_role: str | None,
     factory_slug: str,
-    language_hint: Optional[str],
-) -> Optional[dict]:
+    language_hint: str | None,
+) -> dict | None:
     """单次 LLM 调用·拿 4-6 个 AI 字段"""
     prompt = f"""你是 B2B 外贸 BD 助手。请分析以下询盘 · 输出 JSON。
 

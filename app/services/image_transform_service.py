@@ -39,7 +39,6 @@ import io
 import re
 import uuid
 from dataclasses import dataclass
-from typing import Optional
 
 from app.core.logging import get_logger
 
@@ -64,10 +63,10 @@ MIN_DIM = 1
 class ImageTransform:
     """已解析的变换参数·所有字段可选（除 asset_id）"""
     crop_mode: str = "fit"
-    width: Optional[int] = None
-    height: Optional[int] = None
-    crop_x: Optional[int] = None  # c_crop 专用
-    crop_y: Optional[int] = None
+    width: int | None = None
+    height: int | None = None
+    crop_x: int | None = None  # c_crop 专用
+    crop_y: int | None = None
     quality: int = 85
     format: str = "jpg"
     gravity: str = "center"
@@ -238,7 +237,7 @@ def render(
     return buf.getvalue()
 
 
-def _resize_fit(img, w: Optional[int], h: Optional[int]):
+def _resize_fit(img, w: int | None, h: int | None):
     if not w and not h:
         return img
     from PIL import Image
@@ -257,7 +256,7 @@ def _resize_fit(img, w: Optional[int], h: Optional[int]):
     return img.resize((new_w, new_h), Image.LANCZOS)
 
 
-def _resize_fill(img, w: Optional[int], h: Optional[int], gravity: str = "center"):
+def _resize_fill(img, w: int | None, h: int | None, gravity: str = "center"):
     """裁剪填满目标尺寸 · 保比"""
     from PIL import Image
     if not w or not h:
@@ -272,7 +271,7 @@ def _resize_fill(img, w: Optional[int], h: Optional[int], gravity: str = "center
     return img.crop((left, top, left + w, top + h))
 
 
-def _resize_thumb(img, w: Optional[int], h: Optional[int]):
+def _resize_thumb(img, w: int | None, h: int | None):
     from PIL import Image
     target = w or h or 200
     src_w, src_h = img.size
@@ -327,7 +326,6 @@ def content_type_for(fmt: str) -> str:
 #   2. recompute hmac · constant-time compare
 #   3. check 解码后的 a 匹配 URL · expires 未过
 import base64
-import hashlib
 import hmac
 import json
 import time
@@ -347,7 +345,7 @@ def _get_signing_secret() -> bytes:
     raw = getattr(settings, "IMG_SIGN_KEY_HEX", None) or getattr(
         settings, "VAULT_HMAC_HEX", None
     )
-    if not raw or raw == "1" * 64 or raw == "0" * 64:
+    if not raw or raw in {"1" * 64, "0" * 64}:
         raise RuntimeError(
             "IMG_SIGN_KEY_HEX (or VAULT_HMAC_HEX) not set or still default — "
             "cannot sign image URLs (生成: `openssl rand -hex 32`)"

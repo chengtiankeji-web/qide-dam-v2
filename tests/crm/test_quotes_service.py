@@ -6,9 +6,9 @@ from decimal import Decimal
 import pytest
 
 from app.services.crm.quotes_service import (
-    ALLOWED_QUOTE_TRANSITIONS, _calculate_totals,
+    ALLOWED_QUOTE_TRANSITIONS,
+    _calculate_totals,
 )
-
 
 # ════════════════════════════════════════════════════════════
 # line_items 计算 · 纯函数·不需 DB

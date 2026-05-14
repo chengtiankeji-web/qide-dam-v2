@@ -7,19 +7,13 @@
 """
 from __future__ import annotations
 
-import pytest
-
 from app.services.crm.classification import (
     ClassificationInput,
     classify_lead,
-    detect_quantity,
     detect_budget,
-    detect_timeline,
-    detect_specification,
-    detect_decision_role,
     detect_company_info,
+    detect_specification,
 )
-
 
 # ════════════════════════════════════════════════════════════
 # A 类·6 要素全·决策人·应 24h 内跟

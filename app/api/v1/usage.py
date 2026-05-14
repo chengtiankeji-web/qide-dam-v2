@@ -50,7 +50,8 @@ async def get_live_summary(
 ) -> LiveSummaryOut:
     """v3 P1.3 #4 (2026-05-13 深夜) · Dashboard 实时计数 · 不依赖 usage_meters · 直接 assets 表 SQL aggregate"""
     if project_id and not p.can_access_project(project_id):
-        from fastapi import HTTPException, status as _s
+        from fastapi import HTTPException
+        from fastapi import status as _s
         raise HTTPException(_s.HTTP_403_FORBIDDEN, "no access")
 
     # platform_admin 选了 project 跨租户的 · effective tenant 从 project 反查

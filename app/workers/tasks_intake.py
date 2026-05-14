@@ -29,7 +29,6 @@ import os
 import re
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
 
 from celery import chain
 from sqlalchemy import select
@@ -189,7 +188,7 @@ RULE_PATTERNS = {
 }
 
 
-def _rule_classify(filename: str, kind: str) -> tuple[str, float, Optional[str]]:
+def _rule_classify(filename: str, kind: str) -> tuple[str, float, str | None]:
     """规则引擎单文件分类 · 返 (category, confidence, flagged_reason)"""
     # video kind → video category
     if kind == "video":
@@ -209,7 +208,7 @@ def _rule_classify(filename: str, kind: str) -> tuple[str, float, Optional[str]]
     return "other", 0.3, "low_confidence"
 
 
-def _extract_sku_slug(filename: str) -> Optional[str]:
+def _extract_sku_slug(filename: str) -> str | None:
     """从文件名抽 sku · 用第一段 alpha+digit 组合"""
     base = os.path.splitext(filename)[0]
     # 去掉序号 / 版本号
@@ -317,7 +316,6 @@ def _llm_classify_batch(
     """对低置信项分批送 LLM 复审·返 (upgraded_count, cost_cny, in_tokens, out_tokens)"""
     from app.services import ai_service
     from app.services.intake_prompts import (
-        CLASSIFY_CATEGORIES,
         classify_filename_batch_prompt,
     )
 
@@ -601,7 +599,6 @@ def push_to_dam(self, job_id: str) -> dict:
       - put_object 失败 → push_error 记录·继续下一个（不让 1 文件挂全 job）
       - 任意失败 → job.push_error_count++
     """
-    from sqlalchemy.orm import Session
 
     from app.core.config import settings
     from app.models.asset import Asset

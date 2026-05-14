@@ -5,7 +5,6 @@ import io
 import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Optional
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -71,22 +70,22 @@ async def create_quote(
     *,
     principal: Principal,
     tenant_id: uuid.UUID,
-    deal_id: Optional[uuid.UUID],
+    deal_id: uuid.UUID | None,
     line_items: list[dict],
-    account_id: Optional[uuid.UUID] = None,
-    contact_id: Optional[uuid.UUID] = None,
-    factory_slug: Optional[str] = None,
+    account_id: uuid.UUID | None = None,
+    contact_id: uuid.UUID | None = None,
+    factory_slug: str | None = None,
     discount_usd: Decimal = Decimal("0"),
     tax_usd: Decimal = Decimal("0"),
     shipping_usd: Decimal = Decimal("0"),
     currency: str = "USD",
     validity_days: int = 30,
-    payment_terms: Optional[str] = None,
-    delivery_terms: Optional[str] = None,  # Incoterms FOB/CIF/etc.
-    delivery_port: Optional[str] = None,
-    estimated_lead_time_days: Optional[int] = None,
-    internal_notes: Optional[str] = None,
-    customer_notes: Optional[str] = None,
+    payment_terms: str | None = None,
+    delivery_terms: str | None = None,  # Incoterms FOB/CIF/etc.
+    delivery_port: str | None = None,
+    estimated_lead_time_days: int | None = None,
+    internal_notes: str | None = None,
+    customer_notes: str | None = None,
 ) -> Quote:
     """创建报价单·自动算 subtotal/total"""
     # 自动 deal_id → account_id + contact_id + factory_slug（如未传）
@@ -159,9 +158,9 @@ async def update_line_items(
     principal: Principal,
     quote_id: uuid.UUID,
     line_items: list[dict],
-    discount_usd: Optional[Decimal] = None,
-    tax_usd: Optional[Decimal] = None,
-    shipping_usd: Optional[Decimal] = None,
+    discount_usd: Decimal | None = None,
+    tax_usd: Decimal | None = None,
+    shipping_usd: Decimal | None = None,
 ) -> Quote:
     """改 line_items + 重算 totals · 仅 draft / revised 状态可改"""
     quote = await db.get(Quote, quote_id)
@@ -198,7 +197,7 @@ async def transition_status(
     principal: Principal,
     quote_id: uuid.UUID,
     new_status: str,
-    sent_to_email: Optional[str] = None,
+    sent_to_email: str | None = None,
 ) -> Quote:
     """报价状态机"""
     quote = await db.get(Quote, quote_id)
@@ -267,12 +266,16 @@ async def generate_pdf(
       - Notes
       - Footer: validity + 联系信息
     """
+    from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import getSampleStyleSheet
     from reportlab.lib.units import cm
-    from reportlab.lib import colors
     from reportlab.platypus import (
-        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
+        Paragraph,
+        SimpleDocTemplate,
+        Spacer,
+        Table,
+        TableStyle,
     )
 
     quote = await db.get(Quote, quote_id)
@@ -407,9 +410,9 @@ async def list_quotes(
     *,
     principal: Principal,
     tenant_id: uuid.UUID,
-    deal_id: Optional[uuid.UUID] = None,
-    account_id: Optional[uuid.UUID] = None,
-    status: Optional[str] = None,
+    deal_id: uuid.UUID | None = None,
+    account_id: uuid.UUID | None = None,
+    status: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[Quote]:

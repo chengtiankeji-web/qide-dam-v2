@@ -28,7 +28,6 @@ import pytest  # noqa: E402
 from app.services import vault_service  # noqa: E402
 from app.services.audit_service import AuditAction  # noqa: E402
 
-
 # ──────────────────────────────────────────────────────────────────────
 #  Vault encryption
 # ──────────────────────────────────────────────────────────────────────
@@ -157,5 +156,5 @@ def test_audit_action_categories_present() -> None:
         if not k.startswith("_") and isinstance(v, str)
     }
     namespaces = {v.split(".")[0] for v in constants}
-    for required in {"auth", "member", "asset", "vault", "ai"}:
+    for required in ("auth", "member", "asset", "vault", "ai"):
         assert required in namespaces, f"missing audit namespace: {required}"
