@@ -118,11 +118,48 @@ fi
 header "[2/7] 服务器拉新代码 + 重建 docker image"
 confirm "继续？"
 
-echo "  → git pull on server..."
-remote "git pull"
+echo "  → 检测服务器上当前 git 分支..."
+SERVER_BRANCH=$(remote "git rev-parse --abbrev-ref HEAD")
+LOCAL_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+echo "    服务器分支: $SERVER_BRANCH · 本地分支: $LOCAL_BRANCH"
 
-echo "  → docker build api worker beat（~30-60 秒）..."
-remote "$DC build api worker beat"
+if [[ "$SERVER_BRANCH" != "$LOCAL_BRANCH" ]]; then
+  warn "分支不一致！服务器在 '$SERVER_BRANCH' · 你 push 到 '$LOCAL_BRANCH'"
+  echo "    选 1：服务器 fetch + checkout 你的分支（临时部署 · 不推荐长期保留）"
+  echo "    选 2：本地合并到 main · 服务器自动用 main（推荐 · 走正规流程）"
+  echo
+  echo "  推荐：先 Ctrl+C 退出本脚本 · 然后："
+  echo "    gh pr merge 1 --squash --delete-branch"
+  echo "    git checkout main && git pull"
+  echo "    bash scripts/_deploy_phase_2345.sh"
+  echo
+  confirm "或者临时让服务器切到 '$LOCAL_BRANCH' 分支？（部署完务必切回 main）"
+
+  echo "  → 服务器 fetch + checkout $LOCAL_BRANCH..."
+  remote "git fetch origin $LOCAL_BRANCH"
+  remote "git checkout $LOCAL_BRANCH"
+  remote "git pull origin $LOCAL_BRANCH"
+  warn "服务器现在在 $LOCAL_BRANCH · 部署完后请切回 main（脚本最后会提醒）"
+else
+  echo "  → git pull on server..."
+  remote "git pull"
+fi
+
+echo "  → 检测可用 docker compose 服务..."
+SERVICES=$(remote "$DC config --services" | tr -d '\r' | tr '\n' ' ')
+echo "    服务: $SERVICES"
+
+# 找出实际存在的 services（api 必备 · worker/beat 可选）
+BUILD_SVC="api"
+for svc in worker beat; do
+  if echo " $SERVICES " | grep -q " $svc "; then
+    BUILD_SVC="$BUILD_SVC $svc"
+  else
+    warn "service '$svc' 不在 compose · 跳过"
+  fi
+done
+echo "  → docker build $BUILD_SVC（~30-60 秒）..."
+remote "$DC build $BUILD_SVC"
 ok "build 完成"
 
 # ─── 第 3 步 · alembic 012 ───────────────────────────────────────────
@@ -130,8 +167,8 @@ ok "build 完成"
 header "[3/7] 装 alembic 012 · CHECK NOT VALID · 不阻塞存量"
 confirm "继续？"
 
-echo "  → 重启 api/worker/beat 容器（拉新镜像）..."
-remote "$DC up -d --force-recreate api worker beat"
+echo "  → 重启 $BUILD_SVC 容器（拉新镜像）..."
+remote "$DC up -d --force-recreate $BUILD_SVC"
 sleep 6  # 等 api 容器健康
 
 echo "  → alembic upgrade 012_sha256_check ..."
@@ -215,3 +252,11 @@ echo "    ✓ dedup_by_name SQL ROW_NUMBER · OOM-safe + idempotent"
 echo "    ✓ live-summary 404 on missing project · 不静默 fallback"
 echo
 echo "  后续若有任何路径漏 sha · PG 直接拒 · 不再依赖应用层正确性。"
+
+# ─── 分支提醒（若服务器切到 feature 分支了） ────────────────────────
+if [[ "${SERVER_BRANCH:-}" != "${LOCAL_BRANCH:-}" && -n "${SERVER_BRANCH:-}" ]]; then
+  echo
+  warn "服务器现在在 $LOCAL_BRANCH · 建议合并 PR 后切回 main："
+  echo "    本地：gh pr merge 1 --squash --delete-branch && git checkout main && git pull"
+  echo "    SSH：ssh -i $PEM $SERVER 'cd $SERVER_PATH && git checkout main && git pull'"
+fi
