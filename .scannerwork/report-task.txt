@@ -2,5 +2,5 @@ projectKey=qide-dam-v2
 serverUrl=http://localhost:9000
 serverVersion=26.5.0.122743
 dashboardUrl=http://localhost:9000/dashboard?id=qide-dam-v2
-ceTaskId=01717acb-529d-4d38-8eb2-e9cec5a5ee71
-ceTaskUrl=http://localhost:9000/api/ce/task?id=01717acb-529d-4d38-8eb2-e9cec5a5ee71
+ceTaskId=3d1a385a-7315-4226-aa59-7cd9af8fc9f6
+ceTaskUrl=http://localhost:9000/api/ce/task?id=3d1a385a-7315-4226-aa59-7cd9af8fc9f6
