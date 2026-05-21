@@ -107,17 +107,17 @@ async def _render_pdf_async(diagnostic_id: str) -> dict:
         )
 
         try:
-            storage.s3_client().put_object(
-                Bucket=storage.bucket_name(),
-                Key=storage_key,
-                Body=pdf_bytes,
-                ContentType="application/pdf",
+            storage.put_object(
+                storage_key=storage_key,
+                body=pdf_bytes,
+                content_type="application/pdf",
             )
         except Exception as exc:
             logger.error("qm.pdf.r2_upload_failed", error=str(exc)[:300])
             return {"ok": False, "error": f"r2 upload: {exc}"}
 
         # 写 Asset 行
+        from app.core.config import settings as _settings
         from app.models.asset import Asset
         now = datetime.now(UTC)
         asset = Asset(
@@ -132,7 +132,7 @@ async def _render_pdf_async(diagnostic_id: str) -> dict:
             sha256=pdf_sha,
             size_bytes=len(pdf_bytes),
             storage_key=storage_key,
-            storage_bucket=storage.bucket_name(),  # 必填 · nullable=False
+            storage_bucket=_settings.S3_BUCKET,  # 必填 · nullable=False
             sensitivity_level="internal",
             status="ready",
             manual_tags=["diagnostic", "auto-generated", "qidematrix"],
@@ -143,10 +143,9 @@ async def _render_pdf_async(diagnostic_id: str) -> dict:
         await db.flush()
 
         # 3. 生成 signed URL (24h)
-        signed_url = storage.s3_client().generate_presigned_url(
-            "get_object",
-            Params={"Bucket": storage.bucket_name(), "Key": storage_key},
-            ExpiresIn=86400,
+        signed_url = storage.presign_get(
+            storage_key=storage_key,
+            expires_in=86400,
         )
 
         diag.pdf_asset_id = asset.id
