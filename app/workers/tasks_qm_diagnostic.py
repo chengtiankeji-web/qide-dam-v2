@@ -132,9 +132,10 @@ async def _render_pdf_async(diagnostic_id: str) -> dict:
             sha256=pdf_sha,
             size_bytes=len(pdf_bytes),
             storage_key=storage_key,
+            storage_bucket=storage.bucket_name(),  # 必填 · nullable=False
             sensitivity_level="internal",
             status="ready",
-            tags=["diagnostic", "auto-generated", "qidematrix"],
+            manual_tags=["diagnostic", "auto-generated", "qidematrix"],
             created_at=now,
             updated_at=now,
         )

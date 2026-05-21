@@ -80,7 +80,7 @@ async def _get_or_create_customer_user(
         tenant_id=tenant_id,
         email=email,
         full_name=name or email.split("@")[0],
-        hashed_password=hash_password(random_password),
+        password_hash=hash_password(random_password),
         is_active=True,
         is_platform_admin=False,
         role="member",

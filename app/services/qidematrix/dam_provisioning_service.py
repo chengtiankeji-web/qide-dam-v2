@@ -204,6 +204,7 @@ async def provision_workspace_for_onboarding(
         slug=project_slug,
         name=onboarding.factory_name,
         description=f"QideMatrix workspace for {onboarding.factory_name}",
+        storage_prefix=project_slug,  # 必填 · nullable=False
         created_at=now,
         updated_at=now,
     )
