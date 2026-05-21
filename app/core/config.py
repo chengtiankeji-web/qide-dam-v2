@@ -116,6 +116,10 @@ class Settings(BaseSettings):
     SOCIAL_OAUTH_REDIRECT_BASE: str = (
         "https://dam-api.qidelinktech.com/v1/social/oauth"
     )
+    # ══ v5 · QideMatrix Phase A · Reddit 话题监测（2026-05-15）══
+    REDDIT_CLIENT_ID: str = ""
+    REDDIT_CLIENT_SECRET: str = ""
+    REDDIT_USER_AGENT: str = "QideMatrix/0.1 (B2B topic monitor)"
 
     @computed_field  # type: ignore[prop-decorator]
     @property

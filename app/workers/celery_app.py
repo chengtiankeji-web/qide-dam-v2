@@ -25,6 +25,13 @@ celery_app = Celery(
         "app.workers.tasks_cleanup",
         "app.workers.tasks_intake",  # v4 Smart Intake
         "app.workers.tasks_social",  # v4 Social Matrix
+        "app.workers.tasks_topic_monitor",  # v5 QideMatrix · Reddit 话题监测 Phase A
+        # v1 QideMatrix · 8 阶段业务流（2026-05-21）
+        "app.workers.tasks_qm_pipeline",
+        "app.workers.tasks_qm_diagnostic",
+        "app.workers.tasks_qm_dam_provisioning",
+        "app.workers.tasks_qm_email",
+        "app.workers.tasks_qm_health",
     ],
 )
 
@@ -46,6 +53,15 @@ celery_app.conf.update(
         "app.workers.tasks_ai.*": {"queue": "ai"},
         "app.workers.tasks_webhook.*": {"queue": "webhook"},
         "cleanup.*": {"queue": "default"},
+        "topic_monitor.score_new": {"queue": "ai"},
+        "topic_monitor.*": {"queue": "default"},
+        # v1 QideMatrix queues
+        "qm.process_diagnostic_*": {"queue": "ai"},
+        "qm.render_diagnostic_pdf": {"queue": "media"},
+        "qm.process_*": {"queue": "default"},
+        "qm.send_email_batch": {"queue": "default"},
+        "qm.compute_health_metrics": {"queue": "default"},
+        "qm.pipeline_drain": {"queue": "default"},
     },
     # Phase 1 (2026-05-08): 回收站每天 04:00 CST 自动清 15 天前的 soft-deleted
     # v3 P1.3 (2026-05-13): + 3 个 reaper 任务
@@ -73,6 +89,34 @@ celery_app.conf.update(
         "retry-r2-orphans-daily": {
             "task": "cleanup.retry_r2_orphans",
             "schedule": crontab(hour=5, minute=0),  # 每天 05:00 (timezone=Asia/Shanghai)
+        },
+        # v5 QideMatrix Phase A (2026-05-15) · Reddit 话题监测
+        # 06:00 抓 + 06:30 评分 · 06:32 接 SEO writer 自动选 top1（Phase B）
+        "qm-topic-fetch-daily": {
+            "task": "topic_monitor.fetch_all",
+            "schedule": crontab(hour=6, minute=0),  # 每天 06:00 CST
+        },
+        "qm-topic-score-daily": {
+            "task": "topic_monitor.score_new",
+            "schedule": crontab(hour=6, minute=30),  # 每天 06:30 CST · 给 fetch 留 30 min
+            "kwargs": {"limit": 200},
+        },
+        # v1 QideMatrix pipeline drain · 每 30 秒扫一次 pending 事件（兜底 · LISTEN/NOTIFY 主路径）
+        "qm-pipeline-drain": {
+            "task": "qm.pipeline_drain",
+            "schedule": 30.0,  # seconds
+            "kwargs": {"batch_size": 20},
+        },
+        # v1 邮件 outbox 每分钟扫一次
+        "qm-email-send-loop": {
+            "task": "qm.send_email_batch",
+            "schedule": 60.0,
+            "kwargs": {"batch_size": 10},
+        },
+        # v1 S8 健康度每日 00:30 CST 跑（错开 FAQ 引擎）
+        "qm-health-compute-daily": {
+            "task": "qm.compute_health_metrics",
+            "schedule": crontab(hour=0, minute=30),
         },
     },
 )

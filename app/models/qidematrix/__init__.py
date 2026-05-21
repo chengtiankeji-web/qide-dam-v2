@@ -1,4 +1,12 @@
 """QideMatrix 模型导出"""
+from app.models.qidematrix.health import QmHealthMetric
+from app.models.qidematrix.order import QmOrder, QmQuote
+from app.models.qidematrix.pipeline import (
+    QmDiagnostic,
+    QmEmailOutbox,
+    QmOnboarding,
+    QmPipelineEvent,
+)
 from app.models.qidematrix.social import (
     QmAccountHealthEvent,
     QmBrowserProfile,
@@ -11,6 +19,11 @@ from app.models.qidematrix.subscription import (
     QmBillingEvent,
     QmSubscription,
     QmUsageMeter,
+)
+from app.models.qidematrix.topic_monitor import (
+    QmTopicCandidate,
+    QmTopicSignal,
+    QmTopicSource,
 )
 from app.models.qidematrix.workflow import (
     QmIndustryTemplate,
@@ -43,4 +56,16 @@ __all__ = [
     "QmProxyPool",
     "QmSocialAccount",
     "QmSocialPost",
+    # Topic monitor
+    "QmTopicCandidate",
+    "QmTopicSignal",
+    "QmTopicSource",
+    # v1 pipeline / S1-S8
+    "QmDiagnostic",
+    "QmEmailOutbox",
+    "QmHealthMetric",
+    "QmOnboarding",
+    "QmOrder",
+    "QmPipelineEvent",
+    "QmQuote",
 ]

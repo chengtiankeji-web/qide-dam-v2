@@ -24,6 +24,18 @@ from app.api.v1 import (
     workflows,
 )
 from app.api.v1.crm import crm_router
+from app.api.v1.qidematrix import (
+    diagnostics as qm_diagnostics,
+    health as qm_health,
+    onboardings as qm_onboardings,
+    orders as qm_orders,
+    pipeline as qm_pipeline,
+    social as qm_social,
+    sso as qm_sso,
+    subscriptions as qm_subscriptions,
+    topics as qm_topics,
+    workspaces as qm_workspaces,
+)
 
 api_router = APIRouter(prefix="/v1")
 api_router.include_router(health.router, tags=["health"])
@@ -57,3 +69,17 @@ api_router.include_router(crm_router, prefix="/crm")
 
 # v3 P1.3 #5 (2026-05-13 晚): handover/plans/sources 消化到 memory
 api_router.include_router(consolidate.router, prefix="/consolidate", tags=["consolidate"])
+
+# v5 QideMatrix · 海外社媒获客工具（routers carry their own /qm/* prefix）
+api_router.include_router(qm_workspaces.router)
+api_router.include_router(qm_subscriptions.router)
+api_router.include_router(qm_sso.router)
+api_router.include_router(qm_social.router)
+api_router.include_router(qm_topics.router)  # Phase A · Reddit 话题监测
+
+# v1 QideMatrix · 8 阶段业务流（2026-05-21）
+api_router.include_router(qm_onboardings.router)   # S1
+api_router.include_router(qm_diagnostics.router)   # S2
+api_router.include_router(qm_orders.router)        # S6 quotes + S7 orders
+api_router.include_router(qm_health.router)        # S8
+api_router.include_router(qm_pipeline.router)     # 事件总线 + 邮件 outbox

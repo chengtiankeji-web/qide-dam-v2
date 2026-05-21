@@ -50,6 +50,49 @@ class SeatLimitReached(WorkspaceError):
     pass
 
 
+# ─── v1 (2026-05-21) · 客户 user 自动建（DAM provisioning 用）─────────
+
+async def _get_or_create_customer_user(
+    db: AsyncSession,
+    *,
+    tenant_id: uuid.UUID,
+    email: str,
+    name: str | None = None,
+) -> uuid.UUID:
+    """根据客户邮箱找/建 user · 用于 onboarding workspace 自动 provision
+
+    幂等：同 email 多次调用返回同 user_id
+    密码：随机生成 32 字节 · 客户后续走"邮箱 magic link"登录 (待 v1.1 实现)
+    """
+    from app.core.security import hash_password
+
+    existing = await db.execute(
+        select(User).where(User.email == email)
+    )
+    user = existing.scalar_one_or_none()
+    if user:
+        return user.id
+
+    now = datetime.now(UTC)
+    random_password = secrets.token_urlsafe(32)
+    user = User(
+        id=uuid.uuid4(),
+        tenant_id=tenant_id,
+        email=email,
+        full_name=name or email.split("@")[0],
+        hashed_password=hash_password(random_password),
+        is_active=True,
+        is_platform_admin=False,
+        role="member",
+        token_version=0,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(user)
+    await db.flush()
+    return user.id
+
+
 # ─── Create ───────────────────────────────────────────────────────────
 
 async def create_workspace(
