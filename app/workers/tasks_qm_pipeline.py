@@ -131,7 +131,10 @@ def process_onboarding_submitted(event_id: str) -> dict:
     """S1 提交 · 发 welcome 邮件给客户"""
     async def handler(db, event):
         from app.services.qidematrix import email_service, onboarding_service
-        ob_id = uuid.UUID(event.payload.get("onboarding_id"))
+        ob_id_str = event.payload.get("onboarding_id")
+        if not ob_id_str:
+            return  # 兜底：测试事件 / payload 不规范 · 跳过
+        ob_id = uuid.UUID(ob_id_str)
         ob = await onboarding_service.get_onboarding(db, onboarding_id=ob_id)
         if not ob:
             return
@@ -157,7 +160,10 @@ def process_onboarding_completed(event_id: str) -> dict:
     """S1 完成 · 触发 S2 诊断（创建 diagnostic 记录）+ S3 DAM workspace"""
     async def handler(db, event):
         from app.services.qidematrix import diagnostic_service, onboarding_service
-        ob_id = uuid.UUID(event.payload.get("onboarding_id"))
+        ob_id_str = event.payload.get("onboarding_id")
+        if not ob_id_str:
+            return
+        ob_id = uuid.UUID(ob_id_str)
         ob = await onboarding_service.get_onboarding(db, onboarding_id=ob_id)
         if not ob:
             return
@@ -174,7 +180,10 @@ def process_diagnostic_requested(event_id: str) -> dict:
     """S2 跑 LLM 诊断 · 写回 diagnostic 行"""
     async def handler(db, event):
         from app.services.qidematrix import diagnostic_service
-        diag_id = uuid.UUID(event.payload.get("diagnostic_id"))
+        diag_id_str = event.payload.get("diagnostic_id")
+        if not diag_id_str:
+            return
+        diag_id = uuid.UUID(diag_id_str)
         await diagnostic_service.run_diagnostic(db, diagnostic_id=diag_id)
     return _run_event_handler(event_id, handler)
 

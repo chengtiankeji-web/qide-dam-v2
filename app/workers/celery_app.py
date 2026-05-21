@@ -6,6 +6,8 @@ sub-modules, causing `KeyError: 'task_name'` at runtime.
 """
 from __future__ import annotations
 
+from datetime import timedelta
+
 from celery import Celery
 from celery.schedules import crontab
 
@@ -102,15 +104,16 @@ celery_app.conf.update(
             "kwargs": {"limit": 200},
         },
         # v1 QideMatrix pipeline drain · 每 30 秒扫一次 pending 事件（兜底 · LISTEN/NOTIFY 主路径）
+        # 2026-05-21 fix: 用 timedelta · 浮点秒数 Celery beat 不解析
         "qm-pipeline-drain": {
             "task": "qm.pipeline_drain",
-            "schedule": 30.0,  # seconds
+            "schedule": timedelta(seconds=30),
             "kwargs": {"batch_size": 20},
         },
         # v1 邮件 outbox 每分钟扫一次
         "qm-email-send-loop": {
             "task": "qm.send_email_batch",
-            "schedule": 60.0,
+            "schedule": timedelta(seconds=60),
             "kwargs": {"batch_size": 10},
         },
         # v1 S8 健康度每日 00:30 CST 跑（错开 FAQ 引擎）
