@@ -422,6 +422,8 @@ class EmailOutboxOut(BaseModel):
     last_error: str | None
     sent_at: datetime | None
     provider: str | None
+    onboarding_id: uuid.UUID | None = None
+    diagnostic_id: uuid.UUID | None = None
     created_at: datetime
 
     class Config:
